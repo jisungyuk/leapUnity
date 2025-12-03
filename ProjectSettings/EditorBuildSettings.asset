@@ -1,0 +1,38 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1045 &1
+EditorBuildSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Scenes:
+  - enabled: 1
+    path: Assets/Scenes/MainMenu.unity
+    guid: 15579d949d443473ea39acaed4a81ddd
+  - enabled: 1
+    path: Assets/Scenes/RG_Game.unity
+    guid: 8366e87dae0ad4c40abe7943b48c0180
+  - enabled: 1
+    path: Assets/Scenes/RG_Session.unity
+    guid: d4bbd173bc22c41e68083c1d7edd60f1
+  - enabled: 1
+    path: Assets/Scenes/RG_Target.unity
+    guid: a407fe5e384694e28a0faff0055f5055
+  - enabled: 1
+    path: Assets/Scenes/RG_GameSetting.unity
+    guid: 0590c32359b9f47ffbc1a739d85b25f2
+  - enabled: 1
+    path: Assets/Scenes/R_Session.unity
+    guid: 33fea3688b19946219c220558e9feb63
+  - enabled: 1
+    path: Assets/Scenes/R_Game.unity
+    guid: 65d2e31c8b3ed4b9099c726d8216ef64
+  - enabled: 1
+    path: Assets/Scenes/R_GameSetting.unity
+    guid: a1bfb9298fea54242aa7ff1033f8bf46
+  - enabled: 1
+    path: Assets/Scenes/R_Target.unity
+    guid: ced75d6c5d9f14c2ca294983856fdfee
+  - enabled: 1
+    path: Assets/Scenes/EndScene.unity
+    guid: 8c9cfa26abfee488c85f1582747f6a02
+  m_configObjects: {}
