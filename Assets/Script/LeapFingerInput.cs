@@ -18,6 +18,13 @@ public class LeapFingerInput : MonoBehaviour
     public Transform finger2;           // thumb tip (for TrialGameController)
     public Transform indexMcp;          // index metacarpophalangeal joint (MCP)
 
+    // 최신 관절 좌표를 외부에서 읽을 수 있도록 저장 (검지 3개 관절 + 팁)
+    public Vector3 indexProxJointPos  { get; private set; } = Vector3.zero; // Proximal.NextJoint
+    public Vector3 indexInterJointPos { get; private set; } = Vector3.zero; // Intermediate.NextJoint
+    public Vector3 indexDistalJointPos { get; private set; } = Vector3.zero; // Distal.PrevJoint (DIP)
+    public Vector3 thumbTipPos { get; private set; } = Vector3.zero;
+    public bool hasIndexJointData { get; private set; } = false;
+
     // Expose last device timestamp (microseconds) for logging/time alignment
     public long lastTimestampUs { get; private set; } = 0;
 
@@ -37,6 +44,7 @@ public class LeapFingerInput : MonoBehaviour
     {
         if (frame == null) return;
         lastTimestampUs = frame.Timestamp;
+        hasIndexJointData = false;
         if (finger1 == null || finger2 == null) return;
 
         Hand hand = null;
@@ -162,6 +170,7 @@ public class LeapFingerInput : MonoBehaviour
 
         finger1.position = indexTipPos;
         finger2.position = thumbTipPos;
+        this.thumbTipPos = thumbTipPos;
 
         // Metacarpal.NextJoint ~ MCP (knuckle) position for index finger
         if (indexMcp != null)
@@ -171,6 +180,19 @@ public class LeapFingerInput : MonoBehaviour
             Vector3 mcpPos = new Vector3(mcp.x, mcp.y, mcp.z);
             indexMcp.position = mcpPos;
         }
+
+        // 추가: 검지 관절 좌표 저장 (proximal / intermediate / distal joint 기준)
+        Bone indexProx = indexFinger.bones[(int)Bone.BoneType.PROXIMAL];
+        Bone indexInter = indexFinger.bones[(int)Bone.BoneType.INTERMEDIATE];
+
+        var prox = indexProx.NextJoint;
+        var inter = indexInter.NextJoint;
+        var distalStart = indexDistal.PrevJoint; // Distal의 시작점(DIP)
+
+        indexProxJointPos   = new Vector3(prox.x, prox.y, prox.z);              // PIP 쪽
+        indexInterJointPos  = new Vector3(inter.x, inter.y, inter.z);          // DIP 쪽 시작
+        indexDistalJointPos = new Vector3(distalStart.x, distalStart.y, distalStart.z); // distal 시작점(DIP)
+        hasIndexJointData = true;
     }
 
 
@@ -186,4 +208,5 @@ public class LeapFingerInput : MonoBehaviour
         // MCP cursor visibility is controlled by TrialGameController via its own cursor,
         // so we usually don't toggle indexMcp GameObject here.
     }
+
 }

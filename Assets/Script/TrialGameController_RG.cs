@@ -47,6 +47,9 @@ public class TrialGameController_RG : MonoBehaviour, ITrialStateProvider
     [Header("Rendering")]
     [SerializeField] Renderer startRenderer;
     [SerializeField] Renderer targetRenderer;
+    [SerializeField] Rigidbody targetBody;          // 물리 타겟 리셋용
+    [SerializeField] Collider targetCollider;       // 타겟 물리 충돌 on/off
+    Quaternion targetInitialRotation = Quaternion.identity;
     [SerializeField] Color startIdleColor  = Color.gray;
     [SerializeField] Color startReadyColor = Color.green;
     [SerializeField] Color targetIdleColor = Color.gray;
@@ -90,6 +93,16 @@ public class TrialGameController_RG : MonoBehaviour, ITrialStateProvider
     [SerializeField] Gettinghanddata handData;
     [SerializeField] LeapFingerInput leapInput;
     [SerializeField] TrialDataLogger dataLogger;
+
+    [Header("Grab Unlock (pinch-based)")]
+    [SerializeField] bool unlockPhysicsOnPinch = true;           // 핀치로만 물리 언락할지
+    [SerializeField] float pinchGrabHold     = 0.5f;             // 핀치 유지 시간(초)
+    [SerializeField] bool useDynamicPinchDistance = true;        // 타겟 지름 기반 임계값 사용
+    [SerializeField] float pinchDistanceScale = 0.8f;            // 임계값 = 지름 * scale
+    [SerializeField] float pinchGrabDistanceFallback = 0.03f;    // 동적 미사용 시 기본값(미터)
+    float pinchGrabDistanceCurrent = 0.03f;                      // 현재 트라이얼용 핀치 거리
+    float pinchTimer = 0f;
+    bool  grabUnlocked = false;
 
 
 // Reaction time (Go → trial offset)
@@ -146,6 +159,13 @@ float ttlLampTimer = 0f;
             startRenderer = startSphere.GetComponentInChildren<Renderer>();
         if (!targetRenderer && targetSphere)
             targetRenderer = targetSphere.GetComponentInChildren<Renderer>();
+        if (!targetBody && targetSphere)
+            targetBody = targetSphere.GetComponent<Rigidbody>();
+        if (!targetCollider && targetSphere)
+            targetCollider = targetSphere.GetComponent<Collider>();
+
+        if (targetSphere)
+            targetInitialRotation = targetSphere.rotation;
 
         if (startSphere)
         {
@@ -168,15 +188,23 @@ float ttlLampTimer = 0f;
     {
         if (startSphere)  startSphere.position  = startPos;
         if (targetSphere) targetSphere.position = targetPos;
+        if (targetSphere) targetSphere.rotation = targetInitialRotation;
 
         targetRadius   = targetRadiusMeters;
         visualFeedback = vf;
+        // 트라이얼마다 핀치 거리 갱신
+        if (useDynamicPinchDistance)
+            pinchGrabDistanceCurrent = (targetRadiusMeters * 2f) * pinchDistanceScale;
+        else
+            pinchGrabDistanceCurrent = pinchGrabDistanceFallback;
 
         if (targetSphere)
         {
             float diameter = targetRadiusMeters * 2f;
             targetSphere.localScale = new Vector3(diameter, targetHeight, diameter);
+            ResetTargetBody(targetSphere.position);
         }
+        SetTargetInteractionEnabled(false); // Go 나오기 전까지는 손과 상호작용 끔
 
         // TTL 설정
         ttlOffsetMs  = ttlMs;
@@ -203,6 +231,8 @@ float ttlLampTimer = 0f;
         feedbackTimer   = 0f;
         freezeCursors   = false;
         notifiedFinished = false;
+        pinchTimer      = 0f;
+        grabUnlocked    = false;
 
         inTargetTimer      = 0f;
         finger1InsideLast  = false;
@@ -233,6 +263,13 @@ float ttlLampTimer = 0f;
         if (instructionText) instructionText.text = "Ready";
 
         UpdateDebug();
+
+        // 타겟 물리 초기화
+        if (targetSphere)
+        {
+            targetSphere.rotation = targetInitialRotation;
+            ResetTargetBody(targetSphere.position);
+        }
 
         // Prepare data logger wiring only if logging is enabled
         if (ShouldLog() && leapInput)
@@ -394,6 +431,7 @@ float ttlLampTimer = 0f;
 
             SetTargetColor(targetGoColor);
             PlaySound(goClip);
+            SetTargetInteractionEnabled(true); // Go 시점부터만 타겟과 상호작용 허용
 
             if (instructionText) instructionText.text = "Go";
 
@@ -436,6 +474,9 @@ float ttlLampTimer = 0f;
         // fingertip이 타겟 안/밖인지 체크
         bool inside1 = IsTipInTarget(finger1, targetSphere.position, targetRadius);
         bool inside2 = IsTipInTarget(finger2, targetSphere.position, targetRadius);
+        bool mcpInsideTarget = IsMcpInSphere(targetSphere.position, targetRadius);
+
+        UpdateGrabUnlock(inside1, inside2); // 타겟이 활성화된 상태일 때만 핀치로 물리 언락 시도
 
         // 경계 처음 넘을 때 경계 위치 기록
         if (inside1 && !finger1InsideLast)
@@ -478,6 +519,9 @@ float ttlLampTimer = 0f;
 
     void Update_Feedback()
     {
+        // 피드백 동안에는 타겟을 다시 잠그고 제자리(현재 타겟 위치/초기 회전)로 스냅
+        LockTargetBody(targetSphere ? targetSphere.position : Vector3.zero, true);
+
         feedbackTimer += Time.deltaTime;
         if (feedbackTimer >= feedbackDuration)
         {
@@ -581,6 +625,102 @@ float ttlLampTimer = 0f;
         audioSource.PlayOneShot(clip);
     }
 
+    void ResetTargetBody(Vector3 pos)
+    {
+        if (!targetBody) return;
+
+        // kinematic으로 잠가 위치/회전/속도 리셋 (기본은 잠긴 상태 유지)
+        targetBody.isKinematic = true;
+        targetBody.velocity = Vector3.zero;
+        targetBody.angularVelocity = Vector3.zero;
+        targetBody.position = pos;
+        targetBody.rotation = targetInitialRotation;
+    }
+
+    void UpdateGrabUnlock(bool inside1, bool inside2)
+    {
+        // 타겟이 Go 상태(초록)일 때만 언락을 허용; 다른 상태면 즉시 잠금
+        if (state != TrialState.MoveToTarget)
+        {
+            LockTargetBody(targetSphere ? targetSphere.position : Vector3.zero, true);
+            SetTargetInteractionEnabled(false);
+            return;
+        }
+        if (!unlockPhysicsOnPinch || !targetBody) return;
+        if (!finger1 || !finger2) return;
+
+        // 핀치 여부: 두 팁이 타겟 내부 + 거리 임계값 이하를 hold
+        float dist = ComputeThumbIndexDistance();
+        bool pinch = dist <= pinchGrabDistanceCurrent && inside1 && inside2;
+
+        if (pinch)
+        {
+            pinchTimer += Time.deltaTime;
+            if (!grabUnlocked && pinchTimer >= pinchGrabHold)
+            {
+                grabUnlocked = true;
+                targetBody.isKinematic = false;
+            }
+        }
+        else
+        {
+            pinchTimer = 0f;
+            if (grabUnlocked)
+            {
+                grabUnlocked = false;
+                targetBody.velocity = Vector3.zero;
+                targetBody.angularVelocity = Vector3.zero;
+                targetBody.isKinematic = true;
+            }
+        }
+    }
+
+    void LockTargetBody(Vector3? snapPos = null, bool resetRotation = false)
+    {
+        if (!targetBody) return;
+        grabUnlocked = false;
+        pinchTimer = 0f;
+        targetBody.velocity = Vector3.zero;
+        targetBody.angularVelocity = Vector3.zero;
+        if (snapPos.HasValue)
+            targetBody.position = snapPos.Value;
+        if (resetRotation)
+            targetBody.rotation = targetInitialRotation;
+        targetBody.isKinematic = true;
+    }
+
+    // 타겟 충돌/그랩 가능 여부 토글
+    void SetTargetInteractionEnabled(bool enabled)
+    {
+        if (!targetBody) return;
+        targetBody.detectCollisions = enabled;
+        if (targetCollider) targetCollider.enabled = enabled;
+    }
+
+    // 엄지 팁과 검지 팁/관절 중 가장 가까운 거리를 계산 (유연한 핀치 판정)
+    float ComputeThumbIndexDistance()
+    {
+        float best = float.MaxValue;
+        if (finger2) // 엄지 팁 기준
+        {
+            Vector3 thumbPos = finger2.position;
+
+            // Leap에서 받은 검지 관절 좌표가 있으면 우선 사용
+            if (leapInput && leapInput.hasIndexJointData)
+            {
+                best = Mathf.Min(best, Vector3.Distance(thumbPos, leapInput.indexProxJointPos));
+                best = Mathf.Min(best, Vector3.Distance(thumbPos, leapInput.indexInterJointPos));
+                best = Mathf.Min(best, Vector3.Distance(thumbPos, leapInput.indexDistalJointPos));
+            }
+
+            // 팁 거리도 후보에 포함
+            if (finger1)
+                best = Mathf.Min(best, Vector3.Distance(thumbPos, finger1.position));
+        }
+
+        return best < float.MaxValue ? best : 999f; // 안전한 큰 값 반환
+    }
+
     void UpdateCursorPositions()
     {
         if (!freezeCursors)
@@ -621,6 +761,9 @@ float ttlLampTimer = 0f;
     void UpdateDebug()
 {
     if (!debugText) return;
+
+    // 핀치 거리(엄지 팁 vs 검지 팁/관절 최소 거리) 표시
+    float pinchDist = ComputeThumbIndexDistance();
 
     // --- Ready phase: 스타트가 초록 → 타겟 초록 전까지 0부터 증가 ---
     float readyPhase = 0f;
@@ -699,6 +842,7 @@ float ttlLampTimer = 0f;
         $"ReadyTime: {readyPhase:F3} s\n" +
         $"MovementTime:   {rtDisplay:F3} s\n" +
         $"TargetHold: {targetHoldDisplay:F3} s\n" +
+        $"PinchDist: {pinchDist * 100f:F1} cm\n" +
         $"feedbackTimer: {feedbackTimer:F3} s\n" +
         $"success: {successThisTrial}\n" +
         ttlStatus + "\n" +
@@ -725,6 +869,10 @@ float ttlLampTimer = 0f;
 
     void EnterFeedback(bool success)
     {
+        // 피드백 중에는 타겟을 잠그고 현재 위치로 스냅해 위치/회전을 유지
+        LockTargetBody(targetSphere ? targetSphere.position : Vector3.zero, true);
+        SetTargetInteractionEnabled(false); // 손과의 상호작용 완전히 차단
+
         // Go 이후 trial offset까지 시간 저장 (한 번만)
         if (goTime > 0f && movementTime < 0f)
         movementTime = Time.time - goTime;
