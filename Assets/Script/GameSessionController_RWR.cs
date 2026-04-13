@@ -24,18 +24,23 @@ public class GameSessionController_RWR : MonoBehaviour
         public Vector3 startPos;
         public Vector3 targetPos;
         public float   targetRadius;
+        public float   startRadiusCm;     // start zone radius in cm (0 = use Inspector default)
         public int     handMode;
         public bool    ttlEnabled;
-        public float   ttlOffsetMs;       // Output 1 delay from Go (ms)
-        public float   ttl2OffsetMs;      // Output 2 = Output1 + this (ms)
+        public float   ttlOffsetMs;       // Testing Stimulus (Output1) delay from Go (ms)
+        public float   ttl2OffsetMs;      // Conditioning Stimulus (Output2) = Output1 + this (ms)
         public int     trialIndex;
         public int     targetId;
-        public int     instruction;   // 0=REST, 1=REACH, 2=REACH+GRASP
+        public int     instruction;       // 0=REST, 1=REACH, 2=REACH+GRASP
+        public float   holdDuration;      // hold in start before direction cue (s); 0 = Inspector default
+        public float   waitForGo;         // direction cue → go delay (s); 0 = Inspector default
+        public float   executingDuration; // execution window (s); 0 = Inspector default
     }
 
     [Header("References")]
     [SerializeField] TrialGameController_RWR trialController;
     [SerializeField] LeapFingerInput          leapInput;
+    [SerializeField] LabChartStatusChecker    labChartStatus;
 
     [Header("Hand Visualization")]
     [SerializeField] GameObject capsuleHands;   // full hand model — ON during calibration, OFF during trials
@@ -104,6 +109,17 @@ public class GameSessionController_RWR : MonoBehaviour
     int visualMode = 0; // 0=all, 1=no hands, 2=none
 
     RwrTrialConfig[] trials;
+
+    // ── Public info for overlay ──────────────────────────────────────
+    public RwrTrialConfig CurrentTrial =>
+        trials != null && currentIndex >= 0 && currentIndex < trials.Length
+        ? trials[currentIndex] : null;
+    public int TrialCount    => trials?.Length ?? 0;
+    public int CurrentIndex  => currentIndex + 1;   // 1-based
+    public bool IsCalibrating => sessionState == SessionState.Calibrating;
+    public bool IsExperimenting => experimentingMode;
+    public int ExperimentCounter => experimentTrialCounter;
+    public string StatusMessage => statusText ? statusText.text : "";
     int currentIndex = -1;
 
     // ── Unity lifecycle ─────────────────────────────────────────────
@@ -138,6 +154,8 @@ public class GameSessionController_RWR : MonoBehaviour
         {
             if (Input.GetKeyDown(KeyCode.Space))
                 ConfirmCalibration();
+
+            UpdateCalibrationStatus();
         }
 
         // SHIFT+SPACE: recalibrate, only allowed when trial is in MoveToStart state
@@ -172,14 +190,40 @@ public class GameSessionController_RWR : MonoBehaviour
         sessionState = SessionState.Calibrating;
 
         if (stageText) stageText.text = "CALIBRATION";
-
-        if (calibrationText)
-            calibrationText.text =
-                "CALIBRATION\n\n" +
-                "Place your hand at the start marker\n" +
-                "then press  SPACE";
-
         if (statusText) statusText.text = "";
+    }
+
+    void UpdateCalibrationStatus()
+    {
+        if (!calibrationText) return;
+
+        // Leap Motion status
+        bool handDetected = leapInput != null && leapInput.hasIndexJointData;
+        string leapLine = handDetected
+            ? "<color=#44FF44>● Hand detected</color>"
+            : "<color=#FF4444>○ No hand detected</color>";
+
+        // LabChart status
+        string labChartLine;
+        if (labChartStatus == null)
+        {
+            labChartLine = "<color=#888888>○ LabChart checker not assigned</color>";
+        }
+        else if (!labChartStatus.IsOpen)
+        {
+            labChartLine = "<color=#FF4444>✗ LabChart not running</color>";
+        }
+        else
+        {
+            labChartLine = "<color=#44FF44>● LabChart open</color>  <color=#FFFF44>— confirm recording manually</color>";
+        }
+
+        calibrationText.text =
+            "CALIBRATION\n\n" +
+            "Place your hand at the start marker\n" +
+            "then press  SPACE\n\n" +
+            $"Leap Motion:  {leapLine}\n" +
+            $"LabChart:     {labChartLine}";
     }
 
     void ConfirmCalibration()
@@ -238,7 +282,11 @@ public class GameSessionController_RWR : MonoBehaviour
             targetSphere.SetActive(true);
         }
 
-        if (calibrationText) calibrationText.text = "";
+        if (calibrationText)
+        {
+            calibrationText.text = "";
+            calibrationText.gameObject.SetActive(false);   // hide calibration panel after cal
+        }
 
         // Try to build trials from store (MainMenu session)
         // If forceExperimentingMode is checked, or no store data → experimenting mode
@@ -346,7 +394,11 @@ public class GameSessionController_RWR : MonoBehaviour
             cfg.trialIndex,
             cfg.targetId,
             cfg.handMode,
-            cfg.instruction
+            cfg.instruction,
+            cfg.holdDuration,
+            cfg.waitForGo,
+            cfg.executingDuration,
+            cfg.startRadiusCm
         );
 
         Debug.Log($"[GameSessionController_RWR] Trial {currentIndex + 1}/{trials.Length} " +
@@ -407,6 +459,9 @@ public class GameSessionController_RWR : MonoBehaviour
 
         Debug.Log($"[GameSessionController_RWR] Recalibrated. New origin: {origin}");
 
+        // Ensure calibration screen text stays hidden
+        if (calibrationText) calibrationText.gameObject.SetActive(false);
+
         // Update start sphere
         float diameter = trialController.StartRadius * 2f;
         if (startSphere != null)
@@ -424,16 +479,27 @@ public class GameSessionController_RWR : MonoBehaviour
                 targetSphere.transform.position = experimentTrial.targetPos;
                 targetSphere.transform.localScale = new Vector3(diameter, diameter, diameter);
             }
+            RunExperimentTrial();
         }
         else
         {
-            // Rebuild trials from store with new origin
+            // Rebuild trials from store with new origin and restart from trial 1
             if (TryBuildTrialsFromStore(origin))
             {
                 currentIndex = -1;
                 Debug.Log("[GameSessionController_RWR] Trials rebuilt with new origin.");
+                StartNextTrial();
             }
         }
+
+        StartCoroutine(ShowStatusThenClear("Recalibrated.", 2f));
+    }
+
+    System.Collections.IEnumerator ShowStatusThenClear(string msg, float delay)
+    {
+        if (statusText) statusText.text = msg;
+        yield return new WaitForSeconds(delay);
+        if (statusText) statusText.text = "";
     }
 
     // ── Experimenting mode ───────────────────────────────────────────
@@ -565,18 +631,25 @@ public class GameSessionController_RWR : MonoBehaviour
                 continue;
             }
 
+            // NoPulse if either ts or cs is "." or empty
+            bool ttlEnabled = ParseTtlEnabled(tr.ts) && ParseTtlEnabled(tr.cs);
+
             built.Add(new RwrTrialConfig
             {
-                trialIndex   = tr.trial,
-                targetId     = targetId,
-                startPos     = origin,              // all trials share the calibrated origin
-                targetPos    = tspec.pos,
-                targetRadius = tspec.radiusM,
-                handMode     = handMode,
-                ttlEnabled   = ParseTtlEnabled(tr.ttl1),
-                ttlOffsetMs  = ParseTtlOffset(tr.ttl1),
-                ttl2OffsetMs = ParseTtlOffset(tr.ttl2Offset),
-                instruction  = ParseInstruction(tr.instruction)
+                trialIndex        = tr.trial,
+                targetId          = targetId,
+                startPos          = origin,              // all trials share the calibrated origin
+                targetPos         = tspec.pos,
+                targetRadius      = tspec.radiusM,
+                startRadiusCm     = ParseFloat(tr.startRadiusCm),
+                handMode          = handMode,
+                ttlEnabled        = ttlEnabled,
+                ttlOffsetMs       = ParseTtlOffset(tr.ts),
+                ttl2OffsetMs      = ParseTtlOffset(tr.cs),
+                instruction       = ParseInstruction(tr.instruction),
+                holdDuration      = ParseFloat(tr.holdDuration),
+                waitForGo         = ParseFloat(tr.waitForGo),
+                executingDuration = ParseFloat(tr.executing)
             });
         }
 
@@ -611,17 +684,29 @@ public class GameSessionController_RWR : MonoBehaviour
         return 0;
     }
 
-    // "none" or empty → TTL disabled; any number → enabled
-    static bool ParseTtlEnabled(string s) =>
-        !string.IsNullOrWhiteSpace(s) &&
-        s.Trim().ToLowerInvariant() != "none" &&
-        float.TryParse(s.Trim(), System.Globalization.NumberStyles.Float,
-                       CultureInfo.InvariantCulture, out _);
+    // "." or empty → TTL disabled (NoPulse); any number → enabled
+    static bool ParseTtlEnabled(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return false;
+        var t = s.Trim();
+        if (t == ".") return false;
+        return float.TryParse(t, System.Globalization.NumberStyles.Float,
+                              CultureInfo.InvariantCulture, out _);
+    }
 
     static float ParseTtlOffset(string s)
     {
         if (string.IsNullOrWhiteSpace(s)) return 0f;
         float.TryParse(s.Trim(), System.Globalization.NumberStyles.Float,
+                       CultureInfo.InvariantCulture, out float v);
+        return v;
+    }
+
+    static float ParseFloat(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return 0f;
+        s = s.Trim().Replace(',', '.');
+        float.TryParse(s, System.Globalization.NumberStyles.Float,
                        CultureInfo.InvariantCulture, out float v);
         return v;
     }

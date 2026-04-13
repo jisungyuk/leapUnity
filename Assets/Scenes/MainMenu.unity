@@ -566,8 +566,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 388.9, y: 94.8}
-  m_SizeDelta: {x: 200, y: 40}
+  m_AnchoredPosition: {x: 433.7, y: 94.8}
+  m_SizeDelta: {x: 300, y: 40}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &126267535
 MonoBehaviour:
@@ -2480,6 +2480,11 @@ MonoBehaviour:
     sessionSceneName: R_Session
     settingSceneName: R_GameSetting
     gameSceneName: R_Game
+  rwrScenes:
+    targetSceneName: RWR_Target
+    sessionSceneName: RWR_Session
+    settingSceneName: 
+    gameSceneName: RWR_Game
   warningText: {fileID: 808892192}
   startTrialInput: {fileID: 812348994}
   gameModeDropdown: {fileID: 126267535}
@@ -3844,9 +3849,12 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2f430b38eaa9c492285ceba9843d56b1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  rwrCalibrationOrigin: {x: 0, y: 0, z: 0}
+  rwrCalibrated: 0
   currentGameMode: 0
   startTrialIndex: 1
   enableTrialLogging: 0
+  launchedFromMainMenu: 0
 --- !u!4 &1441156622
 Transform:
   m_ObjectHideFlags: 0

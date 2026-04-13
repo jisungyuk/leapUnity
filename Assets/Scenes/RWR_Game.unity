@@ -623,6 +623,55 @@ Transform:
   m_Father: {fileID: 0}
   m_RootOrder: 29
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &342836829
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 342836831}
+  - component: {fileID: 342836830}
+  m_Layer: 0
+  m_Name: GameInfoOverlay
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &342836830
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 342836829}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 04cfe8f974703f14fa8114454e689687, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  leapInput: {fileID: 1807347969}
+  labChartStatus: {fileID: 712415096}
+  sessionController: {fileID: 484277109}
+  toggleKey: 9
+  showOnStart: 1
+--- !u!4 &342836831
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 342836829}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 32
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &382725293
 GameObject:
   m_ObjectHideFlags: 0
@@ -640,7 +689,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &382725294
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -755,7 +804,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 1, y: 1}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: -60.11, y: -410.6}
+  m_AnchoredPosition: {x: -60.110107, y: -410.59998}
   m_SizeDelta: {x: 200, y: 50}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!1 &386600088
@@ -997,19 +1046,30 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   trialController: {fileID: 1867786848}
   leapInput: {fileID: 1807347969}
+  labChartStatus: {fileID: 712415096}
   capsuleHands: {fileID: 938428884}
   startSphere: {fileID: 1810169202}
   targetSphere: {fileID: 1778046400}
   previewAngleDeg: 90
   previewDistanceCm: 20
-  forceExperimentingMode: 0
+  forceExperimentingMode: 1
   experimentLogging: 0
   experimentDataPath: C:/Users/Jisung Yuk/Documents/leapUnity/ExperimentData
   experimentInstruction: 1
-  experimentTtlEnabled: 1
-  experimentTtlOffsetMs: 0
-  experimentTtl2OffsetMs: 2.5
   experimentHandMode: 1
+  experimentTtlList:
+  - ttlEnabled: 1
+    ttlOffsetMs: 0
+    ttl2OffsetMs: -100
+  - ttlEnabled: 1
+    ttlOffsetMs: 50
+    ttl2OffsetMs: 0
+  - ttlEnabled: 0
+    ttlOffsetMs: 0
+    ttl2OffsetMs: 0
+  - ttlEnabled: 1
+    ttlOffsetMs: 100
+    ttl2OffsetMs: 30
   statusText: {fileID: 1943709232}
   trialCounterText: {fileID: 382725294}
   calibrationText: {fileID: 491300156}
@@ -1182,7 +1242,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d3f36609f3ec8884c9a021b139a4f4bb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  vbsTemplatePath: C:\Users\Jisung Yuk\Documents\leapUnity\Source\Firstt.vbs
+  vbsDoublePulsePath: C:\Users\Jisung Yuk\Documents\leapUnity\Source\DoublePulse.vbs
+  vbsSinglePulsePath: C:\Users\Jisung Yuk\Documents\leapUnity\Source\SinglePulse.vbs
+  vbsNoPulsePath: C:\Users\Jisung Yuk\Documents\leapUnity\Source\NoPulse.vbs
   interMessageDelayMs: 50
 --- !u!4 &492172705
 Transform:
@@ -1297,6 +1359,51 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_RootOrder: 11
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &712415095
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 712415097}
+  - component: {fileID: 712415096}
+  m_Layer: 0
+  m_Name: LabChartStatusChecker
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &712415096
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 712415095}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b1a08bb8112278148bc0e3409321220a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  pollInterval: 2
+--- !u!4 &712415097
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 712415095}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 31
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &747687702
 GameObject:
@@ -1579,7 +1686,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!114 &846820977
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3050,7 +3157,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &1943709231
 RectTransform:
   m_ObjectHideFlags: 0

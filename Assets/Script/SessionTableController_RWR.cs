@@ -22,6 +22,10 @@ public class SessionTableController_RWR : MonoBehaviour
     private SessionRow_RWR lastClicked;
     private int nextIndex = 1;
 
+    // CSV column header
+    // #,hand,target,start_r,hold,wait,move,ts,cs,inst
+    const string CSV_HEADER = "#,hand,target,start_r,hold,wait,move,ts,cs,inst";
+
     void Awake()
     {
         if (!content)   Debug.LogError("[SessionTableController_RWR] Content not assigned!", this);
@@ -51,6 +55,18 @@ public class SessionTableController_RWR : MonoBehaviour
         var row = go.GetComponent<SessionRow_RWR>();
         row.Init(this);
         row.SetIndex(nextIndex++);
+
+        // Default values
+        row.hand.text          = "1";
+        row.targetId.text      = "1";
+        row.startRadiusCm.text = "15";
+        row.holdDuration.text  = "0.5";
+        row.waitForGo.text     = "3";
+        row.executing.text     = "3";
+        row.ts.text            = "";
+        row.cs.text            = "";
+        row.instruction.text   = "1";
+
         rows.Add(row);
         SelectRow(row);
     }
@@ -75,21 +91,51 @@ public class SessionTableController_RWR : MonoBehaviour
             var row = go.GetComponent<SessionRow_RWR>();
             row.Init(this);
 
-            row.targetId.text    = src.targetId.text;
-            row.startX.text      = src.startX.text;
-            row.startY.text      = src.startY.text;
-            row.startZ.text      = src.startZ.text;
-            row.hand.text        = src.hand.text;
-            row.ttl1.text        = src.ttl1.text;
-            if (row.ttl2Offset) row.ttl2Offset.text = src.ttl2Offset ? src.ttl2Offset.text : "";
-            row.instruction.text = src.instruction.text;
+            row.hand.text         = src.hand.text;
+            row.targetId.text     = src.targetId.text;
+            row.startRadiusCm.text = src.startRadiusCm.text;
+            row.holdDuration.text  = src.holdDuration.text;
+            row.waitForGo.text     = src.waitForGo.text;
+            row.executing.text     = src.executing.text;
+            row.ts.text            = src.ts.text;
+            row.cs.text            = src.cs.text;
+            row.instruction.text   = src.instruction.text;
 
             rows.Insert(insertIndex + k, row);
+            go.transform.SetSiblingIndex(insertIndex + k);  // keep visual order in sync with list order
         }
 
         Renumber();
         SnapshotToCache();
         SetStatus($"Duplicated trial x{count}");
+    }
+
+    public void RandomizeTrials()
+    {
+        if (rows.Count < 2) { SetStatus("Need at least 2 trials to randomize."); return; }
+
+        // Fisher-Yates shuffle
+        var rng = new System.Random();
+        for (int i = rows.Count - 1; i > 0; i--)
+        {
+            int j = rng.Next(i + 1);
+            (rows[i], rows[j]) = (rows[j], rows[i]);
+        }
+
+        // Sync GameObject sibling order to match shuffled list
+        for (int i = 0; i < rows.Count; i++)
+            rows[i].transform.SetSiblingIndex(i);
+
+        Renumber();
+        SnapshotToCache();
+        SetStatus("Trials randomized.");
+    }
+
+    public void ResetAll()
+    {
+        ClearAll();
+        SnapshotToCache();
+        SetStatus("All trials cleared.");
     }
 
     public void DeleteSelected()
@@ -152,22 +198,12 @@ public class SessionTableController_RWR : MonoBehaviour
         }
 
         var sb = new StringBuilder();
-        sb.AppendLine("#,target,startx,starty,startz,hand,ttl1,ttl2_offset,instruction");
+        sb.AppendLine(CSV_HEADER);
 
         for (int i = 0; i < rows.Count; i++)
         {
             var r = rows[i];
-            string trial  = (i + 1).ToString();
-            string target = (r.targetId.text    ?? "").Trim();
-            string sx     = (r.startX.text      ?? "").Trim().Replace(',', '.');
-            string sy     = (r.startY.text      ?? "").Trim().Replace(',', '.');
-            string sz     = (r.startZ.text      ?? "").Trim().Replace(',', '.');
-            string hnd    = (r.hand.text         ?? "").Trim();
-            string ttl    = (r.ttl1.text        ?? "").Trim().Replace(',', '.');
-            string ttl2   = (r.ttl2Offset != null ? r.ttl2Offset.text : "").Trim().Replace(',', '.');
-            string inst   = (r.instruction.text ?? "").Trim();
-
-            sb.AppendLine($"{trial},{target},{sx},{sy},{sz},{hnd},{ttl},{ttl2},{inst}");
+            sb.AppendLine(RowToCsv(i + 1, r));
         }
 
         string file = $"session_rwr_{System.DateTime.Now:yyyyMMdd_HHmmss}.csv";
@@ -206,7 +242,6 @@ public class SessionTableController_RWR : MonoBehaviour
         var lines = File.ReadAllLines(path, Encoding.UTF8);
         ClearAll();
 
-        // header: #,target,startx,starty,startz,hand,ttl,instruction
         int start = 0;
         if (lines.Length > 0)
         {
@@ -221,7 +256,7 @@ public class SessionTableController_RWR : MonoBehaviour
             if (string.IsNullOrEmpty(line)) continue;
 
             var c = line.Split(',');
-            if (c.Length < 8) continue;
+            if (c.Length < 10) continue;
 
             var go  = Instantiate(rowPrefab, content);
             var row = go.GetComponent<SessionRow_RWR>();
@@ -229,14 +264,16 @@ public class SessionTableController_RWR : MonoBehaviour
             row.SetIndex(idx++);
             rows.Add(row);
 
-            row.targetId.text    = c[1].Trim();
-            row.startX.text      = c[2].Trim().Replace(',', '.');
-            row.startY.text      = c[3].Trim().Replace(',', '.');
-            row.startZ.text      = c[4].Trim().Replace(',', '.');
-            row.hand.text        = c[5].Trim();
-            row.ttl1.text        = c[6].Trim().Replace(',', '.');
-            if (row.ttl2Offset != null) row.ttl2Offset.text = c.Length > 7 ? c[7].Trim().Replace(',', '.') : "";
-            row.instruction.text = c.Length > 8 ? c[8].Trim() : "";
+            // columns: #, hand, target, start_r, hold, wait, move, ts, cs, inst
+            row.hand.text          = c[1].Trim();
+            row.targetId.text      = c[2].Trim();
+            row.startRadiusCm.text = c[3].Trim().Replace(',', '.');
+            row.holdDuration.text  = c[4].Trim().Replace(',', '.');
+            row.waitForGo.text     = c[5].Trim().Replace(',', '.');
+            row.executing.text     = c[6].Trim().Replace(',', '.');
+            row.ts.text            = c[7].Trim().Replace(',', '.');
+            row.cs.text            = c[8].Trim().Replace(',', '.');
+            row.instruction.text   = c[9].Trim();
         }
 
         nextIndex = rows.Count + 1;
@@ -247,6 +284,22 @@ public class SessionTableController_RWR : MonoBehaviour
     }
 
     // -------- Helpers --------
+
+    string RowToCsv(int trialNum, SessionRow_RWR r)
+    {
+        string trial   = trialNum.ToString();
+        string hand    = (r.hand.text          ?? "").Trim();
+        string target  = (r.targetId.text      ?? "").Trim();
+        string startR  = (r.startRadiusCm.text ?? "").Trim().Replace(',', '.');
+        string hold    = (r.holdDuration.text  ?? "").Trim().Replace(',', '.');
+        string wait    = (r.waitForGo.text     ?? "").Trim().Replace(',', '.');
+        string move    = (r.executing.text     ?? "").Trim().Replace(',', '.');
+        string ts      = (r.ts.text            ?? "").Trim().Replace(',', '.');
+        string cs      = (r.cs.text            ?? "").Trim().Replace(',', '.');
+        string inst    = (r.instruction.text   ?? "").Trim();
+
+        return $"{trial},{hand},{target},{startR},{hold},{wait},{move},{ts},{cs},{inst}";
+    }
 
     void Renumber()
     {
@@ -280,16 +333,19 @@ public class SessionTableController_RWR : MonoBehaviour
             var r = rows[i];
             list.Add(new RuntimeConfigStore.TrialSpec
             {
-                trial       = i + 1,
-                targetId    = (r.targetId.text    ?? "").Trim(),
-                startX      = ParseFloat(r.startX.text),
-                startY      = ParseFloat(r.startY.text),
-                startZ      = ParseFloat(r.startZ.text),
-                ttl1        = (r.ttl1.text ?? "").Trim(),
-                ttl2Offset  = (r.ttl2Offset != null ? r.ttl2Offset.text : "").Trim(),
-                hand        = (r.hand.text         ?? "").Trim(),
-                instruction = (r.instruction.text ?? "").Trim(),
-                vf          = ""
+                trial         = i + 1,
+                hand          = (r.hand.text          ?? "").Trim(),
+                targetId      = (r.targetId.text      ?? "").Trim(),
+                startRadiusCm = (r.startRadiusCm.text ?? "").Trim(),
+                holdDuration  = (r.holdDuration.text  ?? "").Trim(),
+                waitForGo     = (r.waitForGo.text     ?? "").Trim(),
+                executing     = (r.executing.text     ?? "").Trim(),
+                ts            = (r.ts.text            ?? "").Trim(),
+                cs            = (r.cs.text            ?? "").Trim(),
+                instruction   = (r.instruction.text   ?? "").Trim(),
+                // Legacy fields unused in RWR
+                startX = 0, startY = 0, startZ = 0,
+                ttl1 = "", ttl2Offset = "", vf = ""
             });
         }
         store.SetTrials(list);
@@ -307,14 +363,15 @@ public class SessionTableController_RWR : MonoBehaviour
             row.SetIndex(idx++);
             rows.Add(row);
 
-            row.targetId.text    = t.targetId;
-            row.startX.text      = t.startX.ToString(CultureInfo.InvariantCulture);
-            row.startY.text      = t.startY.ToString(CultureInfo.InvariantCulture);
-            row.startZ.text      = t.startZ.ToString(CultureInfo.InvariantCulture);
-            row.ttl1.text        = t.ttl1 ?? string.Empty;
-            if (row.ttl2Offset != null) row.ttl2Offset.text = t.ttl2Offset ?? string.Empty;
-            row.hand.text        = t.hand        ?? string.Empty;
-            row.instruction.text = t.instruction ?? string.Empty;
+            row.hand.text          = t.hand          ?? "";
+            row.targetId.text      = t.targetId      ?? "";
+            row.startRadiusCm.text = t.startRadiusCm ?? "";
+            row.holdDuration.text  = t.holdDuration  ?? "";
+            row.waitForGo.text     = t.waitForGo     ?? "";
+            row.executing.text     = t.executing     ?? "";
+            row.ts.text            = t.ts            ?? "";
+            row.cs.text            = t.cs            ?? "";
+            row.instruction.text   = t.instruction   ?? "";
         }
         nextIndex = rows.Count + 1;
         SelectRow(null);

@@ -155,7 +155,11 @@ public class TrialGameController_RWR : MonoBehaviour
         int     trialIndex,
         int     targetId,
         int     handMode,
-        int     instruction)
+        int     instruction,
+        float   perTrialHoldDuration      = 0f,  // 0 = use Inspector value
+        float   perTrialWaitForGo         = 0f,  // 0 = use Inspector value
+        float   perTrialExecutingDuration = 0f,  // 0 = use Inspector value
+        float   perTrialStartRadiusCm     = 0f)  // 0 = use Inspector value
     {
         if (startSphere)  startSphere.position  = startPos;
         if (targetSphere) targetSphere.position = targetPos;
@@ -168,6 +172,12 @@ public class TrialGameController_RWR : MonoBehaviour
         currentTargetId     = targetId;
         currentHandMode     = handMode;
         currentInstruction  = Mathf.Clamp(instruction, 0, 2);
+
+        // Apply per-trial timing overrides (0 = keep Inspector default)
+        if (perTrialHoldDuration      > 0f) holdDuration      = perTrialHoldDuration;
+        if (perTrialWaitForGo         > 0f) goDelay           = perTrialWaitForGo;
+        if (perTrialExecutingDuration > 0f) executionDuration = perTrialExecutingDuration;
+        if (perTrialStartRadiusCm     > 0f) startRadius       = perTrialStartRadiusCm / 100f;
 
         if (startSphere)
             startSphere.localScale  = new Vector3(startRadius * 2f, startHeight, startRadius * 2f);

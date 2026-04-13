@@ -575,3 +575,43 @@ Fields removed vs R/RG: `vf` (not needed in real-world task)
 - Re-record Source/Firstt.vbs with Output1 set to a 6-char encoded value (e.g. 0.0501s â€” LabChart encodes 0.05 as "0.05" not "0.0500", so use a value with 4 non-zero decimal places).
 - Add a TEMPLATE_DELAY_OUT1 constant and a second ReplaceOccurrence call in BuildModifiedMessage for Output1.
 - Update PrepareOutputs to replace both outputs instead of just Output2.
+
+---
+
+## 2026-04-13
+
+### RWR UI Overhaul + In-Game Info Overlay
+
+**Changes made:**
+
+**Session/Target Table UI:**
+- Session table columns redesigned: #, hand, target, start_r, hold, wait, move, ts, cs, inst
+- AddTrial() defaults: hand=1, target=1, start_r=15cm, hold=0.5s, wait=3s, move=3s, inst=1
+- AddTarget() defaults: angle=90deg, dist=20cm, diameter=15cm
+- Fixed duplicate trial # ordering bug (SetSiblingIndex sync after insert)
+- Added Randomize button (Fisher-Yates shuffle)
+- Added Reset button (clear all trials)
+- Tooltip system on column headers for both Session and Target scenes
+
+**GameSessionController_RWR.cs:**
+- Per-trial timing fields added: startRadiusCm, holdDuration, waitForGo, executingDuration
+- After SHIFT+SPACE recalibration: calibrationText GO hidden, Recalibrated. status shown 2s, trial restarts from #1
+- StatusMessage public getter added for overlay
+
+**LabChartStatusChecker.cs (new):**
+- Polls LabChart8 process every 2s on background thread
+- Exposes IsOpen (recording detection abandoned — COM/window title both inaccessible)
+
+**GameInfoOverlay.cs (new):**
+- Tab key toggle (configurable)
+- Shows: Leap Motion tracking status, LabChart open/closed, current status message, trial info
+- Font size 24pt, panel 420x480
+- LabChartStatusChecker GO + GameInfoOverlay GO added and wired in RWR_Game scene
+
+**Calibration screen fix:**
+- calibrationText GO disabled after SPACE calibration (was text=empty but panel still visible)
+
+**Next session:**
+- Verify recalibration flow in-game (SHIFT+SPACE during MoveToStart)
+- Test Tab overlay during actual trial run
+- Consider RWR2 equivalent wiring (LabChartStatusChecker, GameInfoOverlay)

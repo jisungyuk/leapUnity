@@ -19,14 +19,21 @@ public class RuntimeConfigStore : MonoBehaviour
     public class TrialSpec
     {
         public int trial;
-        public string targetId;   // manual text (e.g., "3")
-        public float startX, startY, startZ;
-        public string ttl1;           // TTL1 = Output1 delay from Go in ms, or "none" to skip TMS
-        public string ttl2Offset;     // Output2 = Output1 + this offset in ms (e.g. "2.5")
-        // Also persist UI text fields that aren't numeric-parsed
-        public string hand;       // e.g., "0/1/2"
-        public string vf;         // e.g., "0/1" (R/RG only)
-        public string instruction; // RWR only: "0"=REST, "1"=REACH, "2"=REACH+GRASP
+        public string targetId;       // target ID (e.g., "1")
+        public float startX, startY, startZ;  // R/RG only — not used in RWR
+        public string ttl1;           // R/RG only legacy TTL field
+        public string ttl2Offset;     // R/RG only legacy TTL field
+        public string hand;           // "0"=Left, "1"=Right, "2"=Both
+        public string vf;             // R/RG only
+        public string instruction;    // "0"=REST, "1"=REACH, "2"=REACH+GRASP
+
+        // RWR-specific fields
+        public string startRadiusCm;  // start zone radius in cm
+        public string holdDuration;   // HoldInStart duration in seconds
+        public string waitForGo;      // WaitForGo duration in seconds
+        public string executing;      // Executing duration in seconds
+        public string ts;             // Testing Stimulus delay from Go cue (ms), "." = NoPulse
+        public string cs;             // Conditioning Stimulus offset from TS (ms), "." = NoPulse
     }
 
     // RWR-specific target spec (polar coordinates relative to calibration origin)

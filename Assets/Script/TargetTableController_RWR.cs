@@ -49,6 +49,12 @@ public class TargetTableController_RWR : MonoBehaviour
         var row = go.GetComponent<TargetRow_RWR>();
         row.Init(this);
         row.SetId(nextId++);
+
+        // Default values
+        row.angleDeg.text   = "90";
+        row.distanceCm.text = "20";
+        row.diameter.text   = "15";
+
         rows.Add(row);
         SelectRow(row);
     }
