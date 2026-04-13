@@ -328,7 +328,7 @@ public void SelectRow(SessionRow row, bool shift)
                 startX  = ParseFloat(r.startX.text),
                 startY  = ParseFloat(r.startY.text),
                 startZ  = ParseFloat(r.startZ.text),
-                ttl1    = ParseFloat(r.ttl1.text),
+                ttl1    = (r.ttl1.text ?? "").Trim(),
                 hand    = (r.Hand.text ?? "").Trim(),
                 vf      = (r.VF.text ?? "").Trim()
             };

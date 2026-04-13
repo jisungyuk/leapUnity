@@ -348,7 +348,7 @@ public class GameSessionController : MonoBehaviour
                 targetPos      = ts.pos,
                 targetRadius   = ts.diameterMeters * 0.5f,
                 visualFeedback = vf,
-                ttlOffsetMs    = tr.ttl1,
+                ttlOffsetMs    = float.TryParse(tr.ttl1, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float _ttl1r) ? _ttl1r : 0f,
                 handMode       = handMode,
                 useLeftHand    = (handMode == 0)
             };

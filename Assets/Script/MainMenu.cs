@@ -31,6 +31,15 @@ public class MainMenu : MonoBehaviour
         gameSceneName    = "R_Game"
     };
 
+    [Header("Scenes - Real World Reaching (RWR)")]
+    [SerializeField] SceneSet rwrScenes = new SceneSet
+    {
+        targetSceneName  = "RWR_Target",
+        sessionSceneName = "RWR_Session",
+        settingSceneName = "",
+        gameSceneName    = "RWR_Game"
+    };
+
 
     [Header("UI")]
     [SerializeField] TMP_Text warningText;        // Small label under Start button (optional)
@@ -85,7 +94,10 @@ public class MainMenu : MonoBehaviour
             return;
         }
         if (RuntimeConfigStore.Instance != null)
+        {
             RuntimeConfigStore.Instance.enableTrialLogging = true;
+            RuntimeConfigStore.Instance.launchedFromMainMenu = true;
+        }
         SceneManager.LoadScene(GetSceneSet().gameSceneName);
     }
 
@@ -131,7 +143,9 @@ public class MainMenu : MonoBehaviour
         }
         ClearModeWarning();
 
-        SceneManager.LoadScene(GetSceneSet().settingSceneName);
+        var sceneName = GetSceneSet().settingSceneName;
+        if (string.IsNullOrEmpty(sceneName)) return;
+        SceneManager.LoadScene(sceneName);
     }
 
     public void QuitGame()
@@ -155,7 +169,9 @@ public class MainMenu : MonoBehaviour
         }
 
         // 2) Require in-memory Targets and Trials (we no longer support CSV mode)
-        if (store == null || store.Targets.Count == 0)
+        bool isRwr = store.currentGameMode == RuntimeConfigStore.GameMode.RealWorldReaching;
+        bool hasTargets = isRwr ? store.RwrTargets.Count > 0 : store.Targets.Count > 0;
+        if (store == null || !hasTargets)
         {
             problem = "❗ No targets defined. Go to Target Settings.";
             return false;
@@ -214,7 +230,12 @@ public class MainMenu : MonoBehaviour
         var store = RuntimeConfigStore.Instance;
         if (!store) return rgScenes;
 
-        return store.currentGameMode == RuntimeConfigStore.GameMode.Reach ? rScenes : rgScenes;
+        return store.currentGameMode switch
+        {
+            RuntimeConfigStore.GameMode.Reach              => rScenes,
+            RuntimeConfigStore.GameMode.RealWorldReaching  => rwrScenes,
+            _                                              => rgScenes
+        };
     }
 
     void EnsureModeFromDropdown()
@@ -233,7 +254,7 @@ public class MainMenu : MonoBehaviour
         var store = RuntimeConfigStore.Instance;
         if (!store) return;
 
-        var clamped = Mathf.Clamp(optionIndex, 0, 2);
+        var clamped = Mathf.Clamp(optionIndex, 0, 3);
         var newMode = (RuntimeConfigStore.GameMode)clamped;
 
         if (store.currentGameMode != newMode)

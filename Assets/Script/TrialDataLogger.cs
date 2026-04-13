@@ -21,6 +21,7 @@ public class TrialDataLogger : MonoBehaviour
     [SerializeField] Transform indexMcp;
 
     ITrialStateProvider owner; // to read current state code
+    bool isExperimenting = false; // when true, uses exp_session_NNN folders
 
     struct Sample
     {
@@ -46,6 +47,8 @@ public class TrialDataLogger : MonoBehaviour
     float readyTime_s, goTime_s;
 
     CultureInfo ic = CultureInfo.InvariantCulture;
+
+    public void SetExperimentingMode(bool value) { isExperimenting = value; }
 
     public void Setup(LeapProvider provider, Transform idx, Transform thb, Transform mcp, ITrialStateProvider owner)
     {
@@ -144,17 +147,37 @@ public class TrialDataLogger : MonoBehaviour
         string root = DataPathManager.Instance != null ? DataPathManager.Instance.ParticipantFolder : Application.persistentDataPath;
         if (string.IsNullOrEmpty(root)) root = Application.persistentDataPath;
 
-        // Decide session_NNN folder per trial overwrite rule
-        int sessionIdx = FindLatestSessionIndex(root);
-        if (sessionIdx <= 0) sessionIdx = 1;
-
+        string prefix    = isExperimenting ? "exp_session_" : "session_";
         string trialFile = TrialFilename(trialIndex);
-        while (SessionContainsTrial(root, sessionIdx, trialFile))
+        int sessionIdx   = FindLatestSessionIndex(root, prefix);
+
+        if (isExperimenting)
         {
-            sessionIdx++;
+            // Experimenting: reuse today's session if it exists, otherwise start a new one
+            if (sessionIdx > 0)
+            {
+                string existingDir   = Path.Combine(root, prefix + $"{sessionIdx:000}");
+                bool recentEnough    = Directory.Exists(existingDir) &&
+                                       (System.DateTime.Now - Directory.GetLastWriteTime(existingDir)).TotalHours < 24.0;
+                bool alreadyHasTrial = SessionContainsTrial(root, sessionIdx, trialFile, prefix);
+
+                if (!recentEnough || alreadyHasTrial)
+                    sessionIdx++;
+            }
+            else
+            {
+                sessionIdx = 1;
+            }
+        }
+        else
+        {
+            // MainMenu: original behaviour — new session per run, increment if trial exists
+            if (sessionIdx <= 0) sessionIdx = 1;
+            while (SessionContainsTrial(root, sessionIdx, trialFile, prefix))
+                sessionIdx++;
         }
 
-        string sessionDir = Path.Combine(root, SessionFolder(sessionIdx));
+        string sessionDir = Path.Combine(root, prefix + $"{sessionIdx:000}");
         string dir01 = Path.Combine(sessionDir, "01");
         string dir02 = Path.Combine(sessionDir, "02");
         Directory.CreateDirectory(dir01);
@@ -225,28 +248,27 @@ public class TrialDataLogger : MonoBehaviour
         Debug.Log($"[TrialDataLogger] Wrote {path}");
     }
 
-    static string SessionFolder(int idx) => $"session_{idx:000}";
     static string TrialFilename(int trialIndex) => $"{trialIndex:0000}.csv";
 
-    static int FindLatestSessionIndex(string root)
+    static int FindLatestSessionIndex(string root, string prefix)
     {
         int latest = 0;
         if (!Directory.Exists(root)) return 0;
-        foreach (var d in Directory.GetDirectories(root, "session_*") )
+        foreach (var d in Directory.GetDirectories(root, prefix + "*"))
         {
-            var name = Path.GetFileName(d);
-            if (name.StartsWith("session_"))
+            string name = Path.GetFileName(d);
+            if (name.StartsWith(prefix))
             {
-                string n = name.Substring(8);
+                string n = name.Substring(prefix.Length);
                 if (int.TryParse(n, out int v)) latest = Mathf.Max(latest, v);
             }
         }
         return latest;
     }
 
-    static bool SessionContainsTrial(string root, int sessionIdx, string trialFilename)
+    static bool SessionContainsTrial(string root, int sessionIdx, string trialFilename, string prefix)
     {
-        string dir = Path.Combine(root, SessionFolder(sessionIdx));
+        string dir = Path.Combine(root, prefix + $"{sessionIdx:000}");
         if (!Directory.Exists(dir)) return false;
         string p1 = Path.Combine(dir, "01", trialFilename);
         string p2 = Path.Combine(dir, "02", trialFilename);

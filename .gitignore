@@ -25,3 +25,9 @@ SysInfo.txt
 # TextMesh Pro generated files
 [Tt]extMesh Pro/
 
+# Experiment data output
+ExperimentData/
+
+# Claude Code internal files
+.claude/
+

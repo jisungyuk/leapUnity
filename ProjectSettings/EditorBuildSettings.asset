@@ -33,6 +33,24 @@ EditorBuildSettings:
     path: Assets/Scenes/R_Target.unity
     guid: ced75d6c5d9f14c2ca294983856fdfee
   - enabled: 1
+    path: Assets/Scenes/RWR_Target.unity
+    guid: e2edcd06f17845643abacad4849b3ef8
+  - enabled: 1
+    path: Assets/Scenes/RWR_Session.unity
+    guid: e8333594105c74a4795c967d9b8dddf8
+  - enabled: 1
+    path: Assets/Scenes/RWR_Game.unity
+    guid: 14f7f90362db9724d9f3b0302d7d11ee
+  - enabled: 1
+    path: Assets/Scenes/RWR2_Target.unity
+    guid: eb1cefe518fe9bd45b32cd66ba70ff5f
+  - enabled: 1
+    path: Assets/Scenes/RWR2_Session.unity
+    guid: f74a084d06243e848bd198a1d3a4e787
+  - enabled: 1
+    path: Assets/Scenes/RWR2_Game.unity
+    guid: c4a1127935bb2474bb25d2f6413bb00f
+  - enabled: 1
     path: Assets/Scenes/EndScene.unity
     guid: 8c9cfa26abfee488c85f1582747f6a02
   m_configObjects: {}
