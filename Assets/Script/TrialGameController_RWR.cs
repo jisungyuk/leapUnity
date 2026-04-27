@@ -427,9 +427,9 @@ public class TrialGameController_RWR : MonoBehaviour
         // Always arm FRO to reset LabChart state from previous trial.
         // ttlEnabled=false → NoPulse (both outputs disabled, clears previous state).
         // ttlEnabled=true  → normal stimulation settings.
-        //   Output1 (Testing)      = (500 + ttl1) ms from trigger
-        //   Output2 (Conditioning) = (500 + ttl1 + ttl2) ms from trigger
-        // ttl2 == 0 means SinglePulse (Output2 disabled).
+        //   Output1 (Conditioning) = (500 + ttl1 + ttl2) ms from trigger  (variable, fires first when ttl2 < 0)
+        //   Output2 (Testing)      = (500 + ttl1) ms from trigger          (fixed reference)
+        // ttl2 == 0 means SinglePulse (Output1/Conditioning disabled).
         if (froController != null)
         {
             // Cancel any in-progress coroutine from a previous trial
@@ -441,14 +441,14 @@ public class TrialGameController_RWR : MonoBehaviour
             }
             else
             {
-                float out1Abs     = 500f + ttlOffsetMs;
-                float out2Abs     = 500f + ttlOffsetMs + ttl2OffsetMs;
+                float out1Abs     = 500f + ttlOffsetMs + ttl2OffsetMs;  // Conditioning
+                float out2Abs     = 500f + ttlOffsetMs;                  // Testing
                 bool  doublePulse = ttl2OffsetMs != 0f;
 
-                if (out1Abs < 0f || out1Abs >= 9900f)
-                    Debug.LogWarning($"[TrialGameController_RWR] Output1 absolute delay out of range: {out1Abs:F1}ms. FRO skipped.");
-                else if (doublePulse && (out2Abs < 0f || out2Abs >= 9900f))
-                    Debug.LogWarning($"[TrialGameController_RWR] Output2 absolute delay out of range: {out2Abs:F1}ms. FRO skipped.");
+                if (doublePulse && (out1Abs < 0f || out1Abs >= 9900f))
+                    Debug.LogWarning($"[TrialGameController_RWR] Output1 (Conditioning) absolute delay out of range: {out1Abs:F1}ms. FRO skipped.");
+                else if (out2Abs < 0f || out2Abs >= 9900f)
+                    Debug.LogWarning($"[TrialGameController_RWR] Output2 (Testing) absolute delay out of range: {out2Abs:F1}ms. FRO skipped.");
                 else
                     froController.activeCoroutine = StartCoroutine(froController.PrepareOutputs(out1Abs, out2Abs, doublePulse));
             }

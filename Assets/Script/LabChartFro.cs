@@ -83,23 +83,26 @@ public class LabChartFro : MonoBehaviour
 
         if (templateBytes == null) yield break;
 
+        // Output1 = Conditioning (variable), Output2 = Testing (fixed reference)
         float out1_s = out1AbsoluteMs / 1000f;
         float out2_s = out2AbsoluteMs / 1000f;
 
-        string out1Str = FormatDelay(out1_s);
-        if (out1Str == null)
+        // Output2 (Testing) always needed — validate first
+        string out2Str = FormatDelay(out2_s);
+        if (out2Str == null)
         {
-            Debug.LogWarning($"[LabChartFro] Output1 delay out of range: {out1AbsoluteMs:F1}ms ({out1_s:F4}s). Must be 0–9.9999s.");
+            Debug.LogWarning($"[LabChartFro] Output2 (Testing) delay out of range: {out2AbsoluteMs:F1}ms ({out2_s:F4}s). Must be 0–9.9999s.");
             yield break;
         }
 
-        string out2Str = null;
+        // Output1 (Conditioning) only needed for DoublePulse
+        string out1Str = null;
         if (doublePulse)
         {
-            out2Str = FormatDelay(out2_s);
-            if (out2Str == null)
+            out1Str = FormatDelay(out1_s);
+            if (out1Str == null)
             {
-                Debug.LogWarning($"[LabChartFro] Output2 delay out of range: {out2AbsoluteMs:F1}ms ({out2_s:F4}s). Must be 0–9.9999s.");
+                Debug.LogWarning($"[LabChartFro] Output1 (Conditioning) delay out of range: {out1AbsoluteMs:F1}ms ({out1_s:F4}s). Must be 0–9.9999s.");
                 yield break;
             }
         }
@@ -114,7 +117,7 @@ public class LabChartFro : MonoBehaviour
         // Step 3: build modified message and send
         byte[] modified = doublePulse
             ? BuildModifiedDouble(templateBytes, out1Str, out2Str)
-            : BuildModifiedSingle(templateBytes, out1Str);
+            : BuildModifiedSingle(templateBytes, out2Str);
 
         if (modified == null) yield break;
 
@@ -122,9 +125,9 @@ public class LabChartFro : MonoBehaviour
         SendPlayMessage(modifiedHex);
 
         if (doublePulse)
-            Debug.Log($"[LabChartFro] FRO armed (DoublePulse): Output1={out1AbsoluteMs:F1}ms  Output2={out2AbsoluteMs:F1}ms  (from TTL trigger)");
+            Debug.Log($"[LabChartFro] FRO armed (DoublePulse): Conditioning(Out1)={out1AbsoluteMs:F1}ms  Testing(Out2)={out2AbsoluteMs:F1}ms  (from TTL trigger)");
         else
-            Debug.Log($"[LabChartFro] FRO armed (SinglePulse): Output1={out1AbsoluteMs:F1}ms  Output2=disabled");
+            Debug.Log($"[LabChartFro] FRO armed (SinglePulse): Testing(Out2)={out2AbsoluteMs:F1}ms  Conditioning=disabled");
     }
 
     /// <summary>
@@ -237,25 +240,25 @@ public class LabChartFro : MonoBehaviour
         return raw;
     }
 
-    /// <summary>Replaces Output1 placeholder only (SinglePulse — Output2 is disabled in template).</summary>
-    byte[] BuildModifiedSingle(byte[] template, string out1Str)
+    /// <summary>Replaces Output2 placeholder only (SinglePulse — Output1/Conditioning is disabled in template).</summary>
+    byte[] BuildModifiedSingle(byte[] template, string out2Str)
     {
         byte[] raw = (byte[])template.Clone();
 
-        byte[] oldOut1 = Encoding.Unicode.GetBytes("PulseDelay = " + TEMPLATE_DELAY_OUT1);
-        byte[] newOut1 = Encoding.Unicode.GetBytes("PulseDelay = " + out1Str);
+        byte[] oldOut2 = Encoding.Unicode.GetBytes("PulseDelay = " + TEMPLATE_DELAY_OUT2);
+        byte[] newOut2 = Encoding.Unicode.GetBytes("PulseDelay = " + out2Str);
 
-        if (oldOut1.Length != newOut1.Length)
+        if (oldOut2.Length != newOut2.Length)
         {
-            Debug.LogWarning($"[LabChartFro] Output1 length mismatch: placeholder={oldOut1.Length} new={newOut1.Length}. out1Str='{out1Str}' must be {TEMPLATE_DELAY_OUT1.Length} chars.");
+            Debug.LogWarning($"[LabChartFro] Output2 length mismatch: placeholder={oldOut2.Length} new={newOut2.Length}. out2Str='{out2Str}' must be {TEMPLATE_DELAY_OUT2.Length} chars.");
             return null;
         }
 
         long origSum = SumBytes(raw);
 
-        if (!ReplaceOccurrence(raw, oldOut1, newOut1, 1))
+        if (!ReplaceOccurrence(raw, oldOut2, newOut2, 1))
         {
-            Debug.LogWarning($"[LabChartFro] Could not find Output1 placeholder in SinglePulse template.");
+            Debug.LogWarning($"[LabChartFro] Could not find Output2 placeholder in SinglePulse template.");
             return null;
         }
 

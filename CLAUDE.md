@@ -13,31 +13,41 @@
 
 ## Project Overview
 - Unity 2021.3.45f1, Ultraleap hand-tracking experiment app.
-- Two main game modes: **RWR** (Reaching with Rotation) and **RWR2**.
+- Main game mode: **RWR** (Reaching with Rotation). Focus is on RWR only.
 - Flow: MainMenu → Target/Session Table → Game Scene → End.
 - Config is held in `RuntimeConfigStore` (singleton) and passed between scenes in memory.
 - Trial data (hand coordinates, state codes, TTL markers) saved as CSV per trial.
 
 ## Key Scripts
-- `TrialGameController_RWR.cs` / `TrialGameController_RWR2.cs` — state machine for each trial
-- `GameSessionController_RWR.cs` / `GameSessionController_RWR2.cs` — sequences trials
+- `TrialGameController_RWR.cs` — state machine for each trial
+- `GameSessionController_RWR.cs` — sequences trials
 - `SessionTableController_RWR.cs` — session table UI, CSV save/load
 - `TargetTableController_RWR.cs` — target table UI
 - `RuntimeConfigStore.cs` — singleton config store (TrialSpec list, participant folder)
 - `LabChartFro.cs` — LabChart FRO per-trial automation via VBScript + cscript.exe
 
 ## LabChart FRO System
-- TriggerBox receives one TTL pulse at the Go cue.
-- FRO fires Output1 (fixed 50ms) and Output2 (per-trial) after that pulse.
-- `LabChartFro.PrepareOutputs()` is called during `ShowDirectionCue()` before each trial.
-- Template: `Source/Firstt.vbs` — Output1 = 0.05s, Output2 = 0.0525s (6-char placeholder).
+- TriggerBox receives one TTL pulse 1 second before the Go cue.
+- FRO fires Output1 (Testing Stimulus) and Output2 (Conditioning Stimulus) at absolute delays from that pulse.
+- `LabChartFro.PrepareOutputs(out1AbsoluteMs, out2AbsoluteMs, doublePulse)` is called during `ShowDirectionCue()` before each trial.
+- Three VBS templates in `Source/`:
+  - `DoublePulse.vbs` — Output1 placeholder `0.0501`, Output2 placeholder `0.0525`, both enabled
+  - `SinglePulse.vbs` — Output1 placeholder `0.0501`, Output2 disabled (On=0)
+  - `NoPulse.vbs` — both outputs disabled; sent as-is when ttlEnabled=false
 - Binary message patched in-place (same-length UTF-16LE replacement + checksum at bytes 20–23).
 - COM interop done via `GetObject(,"ADIChart.Application")` in a temp VBS run by `cscript.exe`.
+- Calling convention:
+  - `out1AbsoluteMs = 1000 + ts` (ms from TTL trigger)
+  - `out2AbsoluteMs = 1000 + ts + cs` (ms from TTL trigger)
+  - `doublePulse = (cs != 0)`
 
 ## Session CSV Format
 ```
-#,target,startx,starty,startz,hand,ttl1,ttl2_offset,instruction
+#,hand,target,start_r,hold,wait,move,ts,cs,inst
 ```
+- `ts` = Testing Stimulus offset (ms from Go cue)
+- `cs` = Conditioning Stimulus offset (ms from Go cue); empty or 0 = SinglePulse
+- `inst` = 0 REST / 1 REACH / 2 REACH+GRASP
 
 ## Worklog
 - Log file: `WORKLOG.md`

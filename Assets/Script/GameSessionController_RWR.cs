@@ -27,8 +27,8 @@ public class GameSessionController_RWR : MonoBehaviour
         public float   startRadiusCm;     // start zone radius in cm (0 = use Inspector default)
         public int     handMode;
         public bool    ttlEnabled;
-        public float   ttlOffsetMs;       // Testing Stimulus (Output1) delay from Go (ms)
-        public float   ttl2OffsetMs;      // Conditioning Stimulus (Output2) = Output1 + this (ms)
+        public float   ttlOffsetMs;       // Testing Stimulus (Output2) delay from Go (ms)
+        public float   ttl2OffsetMs;      // Conditioning Stimulus (Output1) offset from Testing (ms)
         public int     trialIndex;
         public int     targetId;
         public int     instruction;       // 0=REST, 1=REACH, 2=REACH+GRASP
@@ -51,9 +51,7 @@ public class GameSessionController_RWR : MonoBehaviour
     [SerializeField] float      previewAngleDeg   = 90f;  // default target angle (0=right, 90=forward)
     [SerializeField] float      previewDistanceCm = 30f;  // default target distance in cm
 
-    [Header("Experimenting Mode (used when no session data from MainMenu)")]
-    [Tooltip("Force experimenting mode even if MainMenu session data exists")]
-    [SerializeField] bool forceExperimentingMode = false;
+    [Header("Experimenting Mode (used when launched directly, not from MainMenu)")]
     [Tooltip("Enable trial data logging in experimenting mode")]
     [SerializeField] bool experimentLogging = false;
     [Tooltip("Folder to save experimenting data (inside project)")]
@@ -78,9 +76,9 @@ public class GameSessionController_RWR : MonoBehaviour
     /// <summary>
     /// One TTL configuration for experimenting mode.
     /// ttlEnabled=false  → no TTL at all (no FRO call, no TMS).
-    /// ttlOffsetMs       → Testing Stimulus (Output1) delay relative to Go cue (ms). 0 = at Go cue.
-    /// ttl2OffsetMs      → Conditioning Stimulus (Output2) delay relative to Testing Stimulus (ms).
-    ///                      0 = SinglePulse (Output2 disabled). Negative = Conditioning fires before Testing.
+    /// ttlOffsetMs       → Testing Stimulus (Output2) delay relative to Go cue (ms). 0 = at Go cue.
+    /// ttl2OffsetMs      → Conditioning Stimulus (Output1) delay relative to Testing Stimulus (ms).
+    ///                      0 = SinglePulse (Output1 disabled). Negative = Conditioning fires before Testing.
     /// </summary>
     [System.Serializable]
     public class ExperimentTtlEntry
@@ -297,12 +295,19 @@ public class GameSessionController_RWR : MonoBehaviour
         if (RuntimeConfigStore.Instance != null)
             RuntimeConfigStore.Instance.launchedFromMainMenu = false; // consume the flag
 
+        // ── Startup diagnostics ──────────────────────────────────────
+        int storeTrialCount = RuntimeConfigStore.Instance?.Trials?.Count ?? 0;
+        Debug.Log($"[GameSessionController_RWR] === SESSION START DIAGNOSTICS ===\n" +
+                  $"  launchedFromMainMenu : {fromMenu}\n" +
+                  $"  Store trial count : {storeTrialCount}\n" +
+                  $"  → Will use : {(fromMenu ? "STORE (MainMenu session)" : "EXPERIMENT TTL LIST")}");
+
         if (fromMenu)
         {
             if (!TryBuildTrialsFromStore(origin))
                 Debug.LogWarning("[GameSessionController_RWR] Launched from MainMenu but no store data found.");
         }
-        else if (forceExperimentingMode || !TryBuildTrialsFromStore(origin))
+        else
         {
             experimentingMode = true;
             BuildExperimentTrial(origin);
@@ -561,7 +566,7 @@ public class GameSessionController_RWR : MonoBehaviour
 
         string ttl2Desc = !ttlEnabled ? "none" : (ttl2OffsetMs == 0f ? "SinglePulse" : $"{ttl2OffsetMs:F1}ms from Testing");
         Debug.Log($"[GameSessionController_RWR] EXP {experimentTrialCounter} — " +
-                  $"ttlEnabled={ttlEnabled} Testing(Out1)={ttlOffsetMs:F1}ms Conditioning(Out2)={ttl2Desc}");
+                  $"ttlEnabled={ttlEnabled} Testing(Out2)={ttlOffsetMs:F1}ms Conditioning(Out1)={ttl2Desc}");
 
         trialController?.ConfigureAndBegin(
             experimentTrial.startPos,

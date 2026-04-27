@@ -237,50 +237,64 @@ public class SessionTableController_RWR : MonoBehaviour
         if (!FileBrowser.Success) { SetStatus("Load canceled."); yield break; }
 
         string path = FileBrowser.Result[0];
+        Debug.Log($"[SessionTableRWR] Loading: {path}");
+
         if (!File.Exists(path)) { SetStatus("File not found."); yield break; }
 
-        var lines = File.ReadAllLines(path, Encoding.UTF8);
-        ClearAll();
-
-        int start = 0;
-        if (lines.Length > 0)
+        try
         {
-            var h = lines[0].TrimStart().ToLower();
-            if (h.StartsWith("#") || h.StartsWith("trial")) start = 1;
-        }
+            var lines = File.ReadAllLines(path, Encoding.UTF8);
+            ClearAll();
 
-        int idx = 1;
-        for (int i = start; i < lines.Length; i++)
+            int start = 0;
+            if (lines.Length > 0)
+            {
+                var h = lines[0].TrimStart().ToLower();
+                if (h.StartsWith("#") || h.StartsWith("trial")) start = 1;
+            }
+
+            int idx = 1;
+            int skipped = 0;
+            for (int i = start; i < lines.Length; i++)
+            {
+                var line = lines[i].Trim();
+                if (string.IsNullOrEmpty(line)) continue;
+
+                var c = line.Split(',');
+                if (c.Length < 10) { skipped++; continue; }
+
+                var go  = Instantiate(rowPrefab, content);
+                var row = go.GetComponent<SessionRow_RWR>();
+                row.Init(this);
+                row.SetIndex(idx++);
+                rows.Add(row);
+
+                // columns: #, hand, target, start_r, hold, wait, move, ts, cs, inst
+                row.hand.text          = c[1].Trim();
+                row.targetId.text      = c[2].Trim();
+                row.startRadiusCm.text = c[3].Trim().Replace(',', '.');
+                row.holdDuration.text  = c[4].Trim().Replace(',', '.');
+                row.waitForGo.text     = c[5].Trim().Replace(',', '.');
+                row.executing.text     = c[6].Trim().Replace(',', '.');
+                row.ts.text            = c[7].Trim().Replace(',', '.');
+                row.cs.text            = c[8].Trim().Replace(',', '.');
+                row.instruction.text   = c[9].Trim();
+            }
+
+            if (skipped > 0)
+                Debug.LogWarning($"[SessionTableRWR] Skipped {skipped} rows with fewer than 10 columns.");
+
+            nextIndex = rows.Count + 1;
+            SelectRow(null);
+            SnapshotToCache();
+            SetStatus($"Loaded {rows.Count} trials.");
+            Debug.Log($"[SessionTableRWR] Loaded CSV ← {path}  ({rows.Count} rows, {skipped} skipped)");
+        }
+        catch (System.Exception e)
         {
-            var line = lines[i].Trim();
-            if (string.IsNullOrEmpty(line)) continue;
-
-            var c = line.Split(',');
-            if (c.Length < 10) continue;
-
-            var go  = Instantiate(rowPrefab, content);
-            var row = go.GetComponent<SessionRow_RWR>();
-            row.Init(this);
-            row.SetIndex(idx++);
-            rows.Add(row);
-
-            // columns: #, hand, target, start_r, hold, wait, move, ts, cs, inst
-            row.hand.text          = c[1].Trim();
-            row.targetId.text      = c[2].Trim();
-            row.startRadiusCm.text = c[3].Trim().Replace(',', '.');
-            row.holdDuration.text  = c[4].Trim().Replace(',', '.');
-            row.waitForGo.text     = c[5].Trim().Replace(',', '.');
-            row.executing.text     = c[6].Trim().Replace(',', '.');
-            row.ts.text            = c[7].Trim().Replace(',', '.');
-            row.cs.text            = c[8].Trim().Replace(',', '.');
-            row.instruction.text   = c[9].Trim();
+            SetStatus($"Load error: {e.Message}");
+            Debug.LogError($"[SessionTableRWR] Load failed: {e}");
         }
-
-        nextIndex = rows.Count + 1;
-        SelectRow(null);
-        SnapshotToCache();
-        SetStatus($"Loaded: {path}");
-        Debug.Log($"[SessionTableRWR] Loaded CSV ← {path}");
     }
 
     // -------- Helpers --------

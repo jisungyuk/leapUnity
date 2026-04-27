@@ -615,3 +615,109 @@ Fields removed vs R/RG: `vf` (not needed in real-world task)
 - Verify recalibration flow in-game (SHIFT+SPACE during MoveToStart)
 - Test Tab overlay during actual trial run
 - Consider RWR2 equivalent wiring (LabChartStatusChecker, GameInfoOverlay)
+
+---
+
+## 2026-04-27
+
+### LabChartFro.cs 전면 개편 — DoublePulse / SinglePulse / NoPulse 3-모드 지원
+
+**배경:**
+- 이전 구현은 VBS 템플릿이 하나(Firstt.vbs)이고 Output1이 고정(0.05s)이었음.
+- TMS 실험에서 단일 자극(SinglePulse)과 이중 자극(DoublePulse, conditioning + test) 구분이 필요해짐.
+- TTL이 비활성화된 trial에서 이전 trial의 FRO 설정이 남아 있는 문제도 해결 필요.
+
+**변경 사항 (LabChartFro.cs):**
+- VBS 템플릿 3종으로 분리:
+  - `DoublePulse.vbs` — Output1 `0.0501` placeholder, Output2 `0.0525` placeholder, 둘 다 활성
+  - `SinglePulse.vbs` — Output1 `0.0501` placeholder, Output2 비활성(On=0)
+  - `NoPulse.vbs` — Output1/Output2 모두 비활성 (TTL disabled trial용 FRO 초기화)
+- Output1도 가변 처리: 플레이스홀더 `0.0501`을 per-trial 값으로 패치
+- `BuildModifiedDouble()` / `BuildModifiedSingle()` 메서드 분리
+- `PrepareNoPulse()` 추가 — ttlEnabled=false일 때 FRO 상태 초기화
+- `CancelPrepare()` 추가 — trial 중간에 다음 trial이 시작될 경우 진행 중인 코루틴 취소
+- TTL 타이밍 모델 명시: TTL 트리거는 Go 큐 1초 전에 발사; FRO 딜레이는 해당 트리거 기준 절대값(ms)
+
+**호출 규약 (PrepareOutputs):**
+```
+out1AbsoluteMs = 1000 + ttl1       (ms, TTL trigger → Output1)
+out2AbsoluteMs = 1000 + ttl1 + ttl2  (ms, TTL trigger → Output2)
+doublePulse = (ttl2 != 0)
+```
+
+### SessionTableController_RWR.cs — CSV 컬럼명 변경
+
+- 이전: `#,hand,target,start_r,hold,wait,move,ttl1,ttl2_offset,inst`
+- 이후: `#,hand,target,start_r,hold,wait,move,ts,cs,inst`
+- `ts` = Testing Stimulus offset (ms), `cs` = Conditioning Stimulus offset (ms)
+- SnapshotToCache / RestoreFromCache / RowToCsv / LoadCsv 모두 새 컬럼명으로 업데이트
+
+### Editor 도구 추가 (Assets/Editor/)
+
+Scene 컬럼명 변경 이후 기존 씬 헤더를 일괄 수정하고 툴팁을 점검하기 위한 Editor 전용 스크립트:
+- `SessionSceneRWRFixer.cs` (1~6) — RWR Session 씬 HeaderRow 컬럼명 일괄 수정 (TTL→TS, startX/Y/Z→Hold/Wait 등), Move/CS 열 추가, 순서 정렬
+- `TargetSceneRWRFixer.cs` — RWR Target 씬 HeaderRow에 TooltipUI + HeaderTooltipTrigger 자동 연결
+- `TooltipDebugCheck.cs` — 현재 씬의 TooltipUI, HeaderRow, GraphicRaycaster, EventSystem 연결 상태 콘솔 출력
+
+### 다음 세션 할 일
+
+- [x] DoublePulse / SinglePulse / NoPulse VBS 템플릿 파일 완료 (`Source/DoublePulse.vbs`, `Source/SinglePulse.vbs`, `Source/NoPulse.vbs`) — 플레이스홀더 검증 완료
+- [ ] PrepareOutputs → TrialGameController_RWR/RWR2에서 새 시그니처(out1Abs, out2Abs, doublePulse)로 호출부 업데이트
+- [ ] SessionRow_RWR prefab에서 TTL1/TTL2Offset 필드를 TS/CS 필드로 교체 확인
+- [ ] RWR_Game 씬 LabChartFro 컴포넌트에 3개 VBS 경로 연결
+- [ ] Tab 오버레이 실제 실험 환경에서 동작 검증
+- [ ] SHIFT+SPACE 재보정 플로우 in-game 검증
+
+---
+
+## 2026-04-27 (Session 2)
+
+### Inspector UI 개선 — ExperimentTtlEntry 라벨 변경
+
+**변경 내용 (Assets/Editor/ExperimentTtlEntryDrawer.cs 신규):**
+- TTL 목록 Inspector 레이블 전면 변경:
+  - `TTL Enabled` 체크박스 → `No Pulse` (로직 반전: 체크 = 비활성)
+  - `TS` 필드 → `TS (Output2)` (Testing Stimulus)
+  - `CS delay (-)` 필드 → `CS delay (-) (Output1)` (Conditioning Stimulus)
+- `No Pulse` 체크 시 TS/CS 입력 필드 자동 비활성화 (`EditorGUI.DisabledScope`)
+
+**Out1/Out2 라벨 오류 수정 (GameSessionController_RWR.cs):**
+- 코드 주석 및 로그에서 Output1/Output2가 반대로 표기되어 있던 것 수정
+  - Output1 = Conditioning Stimulus (CS), Output2 = Testing Stimulus (TS)
+
+---
+
+### PowerLab FRO 크래시 원인 규명 및 해결
+
+**크래시 재현 조건:**
+- SinglePulse 또는 NoPulse trial 이후 DoublePulse trial 실행 시 즉시 PowerLab 크래시
+- 방향: ON→OFF 전환은 안전 / OFF→ON 전환은 크래시
+
+**근본 원인 (하드웨어 펌웨어 제약):**
+- PowerLab FRO 채널을 LabChart 샘플링 **도중** 에 OFF→ON 전환하면 하드웨어 타이밍 회로를 재초기화해야 하는데,
+  이 과정이 이미 실행 중인 샘플링 DMA/인터럽트 시스템과 충돌 → 펌웨어 예외 발생
+- ON→OFF는 타이밍 회로를 건드릴 필요 없이 단순 비활성화 플래그이므로 안전
+- 이것은 LabChart PowerLab **펌웨어의 근본적 제약**으로 소프트웨어로 우회 불가
+
+**시도한 WarmUp 접근법 (실패):**
+- `EnterFeedback()`에서 매 trial 끝마다 DoublePulse 템플릿을 전송해 Output1을 ON 상태로 복원하는 방식
+- 결론: WarmUp 자체도 OFF→ON COM 호출이므로 동일한 크래시 유발
+
+**채택한 해결책 — Block Design:**
+- TTL 목록을 단방향 전환(ON→OFF)만 발생하도록 순서 구성:
+  ```
+  DoublePulse block (Output1=ON, Output2=ON)
+      ↓ (ON→OFF 안전)
+  SinglePulse block (Output1=OFF, Output2=ON)
+      ↓ (ON→OFF 안전)
+  NoPulse block (Output1=OFF, Output2=OFF)
+  ```
+- **8 trial 제한:** wrap-around 시 NoPulse→DoublePulse (OFF→ON) 크래시 발생
+- **8 trial 초과 시 운영 절차:**
+  1. LabChart 녹화 중지
+  2. FRO 설정에서 Output1 수동 On
+  3. 녹화 재시작 → 하드웨어 재초기화로 이후 DoublePulse 안전하게 시작 가능
+
+**코드 정리:**
+- `TrialGameController_RWR.cs` `EnterFeedback()` 에서 WarmUp 블록 제거
+- `LabChartFro.cs` 에서 `WarmUpOutputs()` 메서드 완전 제거
