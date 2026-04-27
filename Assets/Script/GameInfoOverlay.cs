@@ -15,8 +15,7 @@ public class GameInfoOverlay : MonoBehaviour
     [SerializeField] GameSessionController_RWR sessionController;
 
     [Header("Settings")]
-    [SerializeField] KeyCode toggleKey   = KeyCode.Tab;
-    [SerializeField] bool    showOnStart = false;
+    [SerializeField] KeyCode toggleKey = KeyCode.Tab;
 
     // Runtime UI (created in Awake)
     GameObject panel;
@@ -29,7 +28,7 @@ public class GameInfoOverlay : MonoBehaviour
     void Awake()
     {
         BuildUI();
-        SetVisible(showOnStart);
+        SetVisible(false);
     }
 
     void Update()

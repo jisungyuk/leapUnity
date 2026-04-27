@@ -200,9 +200,13 @@ public class TrialDataLogger : MonoBehaviour
         sb.AppendLine($"# used_hand: {(usedLeft ? "left" : "right")}");
         sb.AppendLine($"# this_file_hand: {(isLeftFile ? "left" : "right")}");
         sb.AppendLine($"# target_id: {targetId}");
-        sb.AppendLine($"# target_pos_m: {targetPos.x.ToString(ic)},{targetPos.y.ToString(ic)},{targetPos.z.ToString(ic)}");
+        // All XYZ coordinates are relative to start position with +1m offset on each axis.
+        // relative = global - startPos + (1,1,1)  →  start position always appears as (1,1,1).
+        Vector3 relTarget = targetPos - startPos + Vector3.one;
+        sb.AppendLine($"# coordinate_system: relative_to_start_plus_1m");
+        sb.AppendLine($"# target_pos_m: {relTarget.x.ToString(ic)},{relTarget.y.ToString(ic)},{relTarget.z.ToString(ic)}");
         sb.AppendLine($"# target_radius_m: {targetRadius.ToString(ic)}");
-        sb.AppendLine($"# start_pos_m: {startPos.x.ToString(ic)},{startPos.y.ToString(ic)},{startPos.z.ToString(ic)}");
+        sb.AppendLine($"# start_pos_m: 1,1,1");
         sb.AppendLine($"# start_radius_m: {startRadius.ToString(ic)}");
         sb.AppendLine($"# timing_s: hold={holdDuration.ToString(ic)}, goDelay={goDelay.ToString(ic)}, moveTimeout={moveTimeout.ToString(ic)}, feedback={feedbackDuration.ToString(ic)}");
         sb.AppendLine($"# times_s: ready={readyTime_s.ToString(ic)}, go={goTime_s.ToString(ic)}");
@@ -229,9 +233,9 @@ public class TrialDataLogger : MonoBehaviour
                 ttlFiredUsFromReady = long.MaxValue;
             }
 
-            Vector3 idx = zero ? Vector3.zero : s.idx;
-            Vector3 thb = zero ? Vector3.zero : s.thb;
-            Vector3 mcp = zero ? Vector3.zero : s.mcp;
+            Vector3 idx = zero ? Vector3.zero : (s.idx - startPos + Vector3.one);
+            Vector3 thb = zero ? Vector3.zero : (s.thb - startPos + Vector3.one);
+            Vector3 mcp = zero ? Vector3.zero : (s.mcp - startPos + Vector3.one);
 
             sb.Append(
                 ((s.tUsFromReady / 1000f).ToString(ic)) + "," +

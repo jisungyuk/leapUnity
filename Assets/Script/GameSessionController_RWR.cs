@@ -56,21 +56,14 @@ public class GameSessionController_RWR : MonoBehaviour
     [SerializeField] bool experimentLogging = false;
     [Tooltip("Folder to save experimenting data (inside project)")]
     [SerializeField] string experimentDataPath = "C:/Users/Jisung Yuk/Documents/leapUnity/ExperimentData";
-    [Tooltip("0=REST  1=REACH  2=REACH+GRASP")]
-    [SerializeField] [Range(0,2)] int experimentInstruction = 1;
-    [Tooltip("0=Left  1=Right  2=Either")]
-    [SerializeField] [Range(0,2)] int experimentHandMode = 1;
 
-    [Tooltip("TTL combinations cycled per trial.\n" +
-             "ttlOffsetMs: Testing Stimulus delay relative to Go cue (ms). 0 = at Go cue.\n" +
-             "ttl2OffsetMs: Conditioning Stimulus delay relative to Testing Stimulus (ms). 0 = SinglePulse (no conditioning).\n" +
-             "ttlEnabled=false: no TTL at all (no TMS).")]
+    [Tooltip("Trial conditions cycled in experimenting mode. Each entry is a fully independent trial: TTL, instruction, hand, and target position.")]
     [SerializeField] List<ExperimentTtlEntry> experimentTtlList = new List<ExperimentTtlEntry>
     {
-        new ExperimentTtlEntry { ttlEnabled = true,  ttlOffsetMs = 0f, ttl2OffsetMs =  -5f },  // Testing at Go, Conditioning 5ms before
-        new ExperimentTtlEntry { ttlEnabled = true,  ttlOffsetMs = 0f, ttl2OffsetMs = -15f },  // Testing at Go, Conditioning 15ms before
-        new ExperimentTtlEntry { ttlEnabled = true,  ttlOffsetMs = 0f, ttl2OffsetMs =   0f },  // Testing at Go, SinglePulse
-        new ExperimentTtlEntry { ttlEnabled = false, ttlOffsetMs = 0f, ttl2OffsetMs =   0f },  // No TTL
+        new ExperimentTtlEntry { ttlEnabled = true,  ttlOffsetMs = 0f, ttl2OffsetMs =  -5f, instruction = 1, handMode = 1, angleDeg = 90f, distanceCm = 30f },
+        new ExperimentTtlEntry { ttlEnabled = true,  ttlOffsetMs = 0f, ttl2OffsetMs = -15f, instruction = 1, handMode = 1, angleDeg = 90f, distanceCm = 30f },
+        new ExperimentTtlEntry { ttlEnabled = true,  ttlOffsetMs = 0f, ttl2OffsetMs =   0f, instruction = 1, handMode = 1, angleDeg = 90f, distanceCm = 30f },
+        new ExperimentTtlEntry { ttlEnabled = false, ttlOffsetMs = 0f, ttl2OffsetMs =   0f, instruction = 1, handMode = 1, angleDeg = 90f, distanceCm = 30f },
     };
 
     /// <summary>
@@ -84,8 +77,12 @@ public class GameSessionController_RWR : MonoBehaviour
     public class ExperimentTtlEntry
     {
         public bool  ttlEnabled   = true;
-        public float ttlOffsetMs  = 0f;    // relative to Go cue
-        public float ttl2OffsetMs = 0f;    // relative to ttlOffsetMs; 0 = SinglePulse
+        public float ttlOffsetMs  = 0f;    // Testing Stimulus: ms relative to Go cue
+        public float ttl2OffsetMs = 0f;    // Conditioning Stimulus: ms relative to Testing; 0 = SinglePulse
+        public int   instruction  = 1;     // 0=REST  1=REACH  2=REACH+GRASP
+        public int   handMode     = 1;     // 0=Left  1=Right  2=Either
+        public float angleDeg     = 90f;   // target angle from home (0=right, 90=forward)
+        public float distanceCm   = 30f;   // target distance from home in cm
     }
 
     [Header("UI")]
@@ -187,6 +184,10 @@ public class GameSessionController_RWR : MonoBehaviour
     {
         sessionState = SessionState.Calibrating;
 
+        // Accept either hand for calibration
+        if (leapInput != null)
+            leapInput.allowEitherHand = true;
+
         if (stageText) stageText.text = "CALIBRATION";
         if (statusText) statusText.text = "";
     }
@@ -218,7 +219,7 @@ public class GameSessionController_RWR : MonoBehaviour
 
         calibrationText.text =
             "CALIBRATION\n\n" +
-            "Place your hand at the start marker\n" +
+            "Place either hand at the home position\n" +
             "then press  SPACE\n\n" +
             $"Leap Motion:  {leapLine}\n" +
             $"LabChart:     {labChartLine}";
@@ -514,30 +515,34 @@ public class GameSessionController_RWR : MonoBehaviour
 
     void BuildExperimentTrial(Vector3 origin)
     {
-        float angleRad = previewAngleDeg * Mathf.Deg2Rad;
-        float distM    = previewDistanceCm / 100f;
-        Vector3 targetPos = new Vector3(
-            origin.x + distM * Mathf.Cos(angleRad),
-            origin.y,
-            origin.z + distM * Mathf.Sin(angleRad)
-        );
-
+        // Base config stores only the start position; target geometry is per-entry.
+        // Preview sphere uses global preview values (calibration reference only).
         experimentTrial = new RwrTrialConfig
         {
             trialIndex   = 0,
             targetId     = 0,
             startPos     = origin,
-            targetPos    = targetPos,
+            targetPos    = ComputeTargetPos(origin, previewAngleDeg, previewDistanceCm),
             targetRadius = trialController.StartRadius,
-            handMode     = experimentHandMode,
-            ttlEnabled   = false,   // overridden per-trial from experimentTtlList in RunExperimentTrial
+            handMode     = 1,
+            ttlEnabled   = false,
             ttlOffsetMs  = 0f,
             ttl2OffsetMs = 0f,
-            instruction  = experimentInstruction
+            instruction  = 1
         };
 
-        Debug.Log($"[GameSessionController_RWR] Experimenting mode. " +
-                  $"Instruction={experimentInstruction} Angle={previewAngleDeg} Dist={previewDistanceCm}cm");
+        Debug.Log($"[GameSessionController_RWR] Experimenting mode. Origin={origin}");
+    }
+
+    Vector3 ComputeTargetPos(Vector3 origin, float angleDeg, float distanceCm)
+    {
+        float angleRad = angleDeg * Mathf.Deg2Rad;
+        float distM    = distanceCm / 100f;
+        return new Vector3(
+            origin.x + distM * Mathf.Cos(angleRad),
+            origin.y,
+            origin.z + distM * Mathf.Sin(angleRad)
+        );
     }
 
     void RunExperimentTrial()
@@ -545,40 +550,47 @@ public class GameSessionController_RWR : MonoBehaviour
         experimentTrialCounter++;
         if (trialCounterText) trialCounterText.text = $"EXP {experimentTrialCounter}";
 
-        if (leapInput != null)
-        {
-            leapInput.allowEitherHand = (experimentTrial.handMode == 2);
-            leapInput.useLeftHand     = (experimentTrial.handMode == 0);
-        }
-
-        // Pick TTL config cyclically from the list
-        bool  ttlEnabled   = false;
-        float ttlOffsetMs  = 0f;
-        float ttl2OffsetMs = 0f;
+        // All trial parameters come from the cycled entry
+        bool    ttlEnabled   = false;
+        float   ttlOffsetMs  = 0f;
+        float   ttl2OffsetMs = 0f;
+        int     instruction  = 1;
+        int     handMode     = 1;
+        Vector3 targetPos    = experimentTrial.targetPos;
 
         if (experimentTtlList != null && experimentTtlList.Count > 0)
         {
-            var entry = experimentTtlList[(experimentTrialCounter - 1) % experimentTtlList.Count];
+            var entry  = experimentTtlList[(experimentTrialCounter - 1) % experimentTtlList.Count];
             ttlEnabled   = entry.ttlEnabled;
             ttlOffsetMs  = entry.ttlOffsetMs;
-            ttl2OffsetMs = entry.ttl2OffsetMs;  // 0 = SinglePulse, non-zero = DoublePulse
+            ttl2OffsetMs = entry.ttl2OffsetMs;
+            instruction  = entry.instruction;
+            handMode     = entry.handMode;
+            targetPos    = ComputeTargetPos(experimentTrial.startPos, entry.angleDeg, entry.distanceCm);
+        }
+
+        if (leapInput != null)
+        {
+            leapInput.allowEitherHand = (handMode == 2);
+            leapInput.useLeftHand     = (handMode == 0);
         }
 
         string ttl2Desc = !ttlEnabled ? "none" : (ttl2OffsetMs == 0f ? "SinglePulse" : $"{ttl2OffsetMs:F1}ms from Testing");
         Debug.Log($"[GameSessionController_RWR] EXP {experimentTrialCounter} — " +
+                  $"inst={instruction} hand={handMode} angle={experimentTtlList[(experimentTrialCounter-1)%experimentTtlList.Count].angleDeg}° dist={experimentTtlList[(experimentTrialCounter-1)%experimentTtlList.Count].distanceCm}cm " +
                   $"ttlEnabled={ttlEnabled} Testing(Out2)={ttlOffsetMs:F1}ms Conditioning(Out1)={ttl2Desc}");
 
         trialController?.ConfigureAndBegin(
             experimentTrial.startPos,
-            experimentTrial.targetPos,
+            targetPos,
             experimentTrial.targetRadius,
             ttlEnabled,
             ttlOffsetMs,
             ttl2OffsetMs,
             experimentTrialCounter,
             experimentTrial.targetId,
-            experimentTrial.handMode,
-            experimentTrial.instruction
+            handMode,
+            instruction
         );
     }
 

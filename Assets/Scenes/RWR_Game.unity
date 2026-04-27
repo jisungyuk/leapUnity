@@ -1052,7 +1052,6 @@ MonoBehaviour:
   targetSphere: {fileID: 1778046400}
   previewAngleDeg: 90
   previewDistanceCm: 20
-  forceExperimentingMode: 0
   experimentLogging: 0
   experimentDataPath: C:/Users/Jisung Yuk/Documents/leapUnity/ExperimentData
   experimentInstruction: 1
@@ -1060,16 +1059,31 @@ MonoBehaviour:
   experimentTtlList:
   - ttlEnabled: 1
     ttlOffsetMs: 0
-    ttl2OffsetMs: -20
+    ttl2OffsetMs: -100
+  - ttlEnabled: 1
+    ttlOffsetMs: 50
+    ttl2OffsetMs: -100
   - ttlEnabled: 1
     ttlOffsetMs: 0
-    ttl2OffsetMs: -50
+    ttl2OffsetMs: -100
+  - ttlEnabled: 1
+    ttlOffsetMs: 0
+    ttl2OffsetMs: 0
+  - ttlEnabled: 1
+    ttlOffsetMs: 0
+    ttl2OffsetMs: 0
+  - ttlEnabled: 1
+    ttlOffsetMs: 50
+    ttl2OffsetMs: 0
   - ttlEnabled: 0
     ttlOffsetMs: 0
-    ttl2OffsetMs: -70
-  - ttlEnabled: 1
-    ttlOffsetMs: 0
     ttl2OffsetMs: -60
+  - ttlEnabled: 0
+    ttlOffsetMs: 0
+    ttl2OffsetMs: -100
+  - ttlEnabled: 0
+    ttlOffsetMs: 0
+    ttl2OffsetMs: 0
   statusText: {fileID: 1943709232}
   trialCounterText: {fileID: 382725294}
   calibrationText: {fileID: 491300156}

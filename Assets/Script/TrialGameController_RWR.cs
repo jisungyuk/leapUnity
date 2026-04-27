@@ -139,6 +139,10 @@ public class TrialGameController_RWR : MonoBehaviour
     bool notifiedFinished = false;
     bool outcomeGood      = false;
 
+    bool   paused          = false;
+    float  pauseStartTime  = 0f;
+    string textBeforePause = "";
+
     bool cursorsOverrideHidden = false;
     bool spheresOverrideHidden = false;
 
@@ -213,7 +217,7 @@ public class TrialGameController_RWR : MonoBehaviour
         SetCursors(true);
 
         if (instructionText)
-            instructionText.text = "Place your hand at the\nstart position";
+            instructionText.text = "Put your hand on home position";
 
         if (ShouldLog() && leapInput)
             dataLogger.Setup(leapInput.leapProvider, indexTip, thumbTip, indexMcp, null);
@@ -262,6 +266,16 @@ public class TrialGameController_RWR : MonoBehaviour
 
     void Update()
     {
+        if (Input.GetKeyDown(KeyCode.P))
+            TogglePause();
+
+        if (paused)
+        {
+            UpdateCursors();
+            UpdateDebug();
+            return;
+        }
+
         // TTL lamp countdown
         if (ttlLampTimer > 0f)
         {
@@ -358,16 +372,16 @@ public class TrialGameController_RWR : MonoBehaviour
     {
         execTimer += Time.deltaTime;
 
-        // REST trial: remind subject to stay if they leave
+        // REST trial: remind subject to return if they leave; otherwise keep fixation + cue
         if (currentInstruction == INST_REST && !McpInStart())
         {
             if (instructionText)
-                instructionText.text = "REST — please stay at the start position";
+                instructionText.text = "REST — please return to home position";
         }
         else if (currentInstruction == INST_REST && McpInStart())
         {
             if (instructionText)
-                instructionText.text = "REST";
+                instructionText.text = "+\n<color=#888888><size=65%><i>Rest</i></size></color>";
         }
 
         if (execTimer >= executionDuration)
@@ -404,15 +418,18 @@ public class TrialGameController_RWR : MonoBehaviour
 
     void ShowDirectionCue()
     {
-        string cueText = currentInstruction switch
+        string instrLabel = currentInstruction switch
         {
-            INST_REST  => "Instruction: Rest",
-            INST_REACH => "Instruction: Reach",
-            INST_RG    => "Instruction: Reach & Grasp",
-            _          => "Instruction: Rest"
+            INST_REST  => "<i>Rest</i>",
+            INST_REACH => "<i>Reach</i>",
+            INST_RG    => "<i>Reach & Grasp</i>",
+            _          => "<i>Rest</i>"
         };
 
-        if (instructionText) instructionText.text = cueText;
+        // Fixation cross on top; dimmed italic direction cue below.
+        // At Go: non-REST replaces this with "GO"; REST keeps it as-is.
+        if (instructionText)
+            instructionText.text = $"+\n<color=#888888><size=65%>{instrLabel}</size></color>";
         PlaySound(readyClip);
 
         // TTL trigger fires 500ms before Go cue (fixed reference point).
@@ -457,7 +474,12 @@ public class TrialGameController_RWR : MonoBehaviour
 
     void EnterGo()
     {
-        if (instructionText) instructionText.text = "GO";
+        // REST: keep fixation cross + "Rest" cue (subject already knows to stay).
+        // Non-REST: replace with "GO" so the subject knows to start moving.
+        if (currentInstruction != INST_REST)
+        {
+            if (instructionText) instructionText.text = "<color=#00CC00>GO</color>";
+        }
         SetTargetColor(targetActiveColor);
         PlaySound(goClip);
 
@@ -496,11 +518,32 @@ public class TrialGameController_RWR : MonoBehaviour
 
     void EnterFeedback()
     {
-        if (instructionText) instructionText.text = outcomeGood ? "GOOD" : "BAD";
+        if (instructionText) instructionText.text = outcomeGood ? "<color=#00CC00>GOOD</color>" : "<color=#FF3333>BAD</color>";
         SetTargetColor(outcomeGood ? targetGoodColor : targetBadColor);
         PlaySound(outcomeGood ? goodClip : badClip);
         feedbackTimer = 0f;
         state         = TrialState.Feedback;
+    }
+
+    void TogglePause()
+    {
+        paused = !paused;
+        if (paused)
+        {
+            pauseStartTime  = Time.time;
+            textBeforePause = instructionText ? instructionText.text : "";
+            if (instructionText) instructionText.text = "<color=#FFFF44>PAUSE</color>";
+        }
+        else
+        {
+            // Shift all time references forward so trial timing stays correct
+            float elapsed = Time.time - pauseStartTime;
+            if (readyTime      > 0f) readyTime      += elapsed;
+            if (goTime         > 0f) goTime         += elapsed;
+            if (ttlPlannedTime > 0f) ttlPlannedTime += elapsed;
+
+            if (instructionText) instructionText.text = textBeforePause;
+        }
     }
 
     void ResetToMoveToStart()
@@ -517,7 +560,7 @@ public class TrialGameController_RWR : MonoBehaviour
         SetCursors(true);
 
         if (instructionText)
-            instructionText.text = "Place your hand at the\nstart position";
+            instructionText.text = "Put your hand on home position";
 
         Debug.Log("[TrialGameController_RWR] False start — reset to MoveToStart.");
     }
@@ -575,6 +618,7 @@ public class TrialGameController_RWR : MonoBehaviour
     bool McpInStart()
     {
         if (!indexMcp || !startSphere) return false;
+        if (leapInput != null && !leapInput.hasIndexJointData) return false;
         float dx = indexMcp.position.x - startSphere.position.x;
         float dz = indexMcp.position.z - startSphere.position.z;
         return dx * dx + dz * dz <= startRadius * startRadius;
@@ -583,6 +627,7 @@ public class TrialGameController_RWR : MonoBehaviour
     bool McpInTarget()
     {
         if (!indexMcp || !targetSphere) return false;
+        if (leapInput != null && !leapInput.hasIndexJointData) return false;
         float dx = indexMcp.position.x - targetSphere.position.x;
         float dz = indexMcp.position.z - targetSphere.position.z;
         return dx * dx + dz * dz <= targetRadius * targetRadius;

@@ -761,3 +761,58 @@ Conditioning TMS feedback → Channel 6
 
 - SinglePulse trial: Output1 비활성 → Conditioning TMS 신호 없음 → Channel 6 flat (정상)
 - NoPulse trial: 두 TMS 모두 신호 없음 → Event mode 페이지는 TriggerBox로 생성
+
+---
+
+## 2026-04-27 (Session 4)
+
+### In-game UI 개선
+
+**Instruction 텍스트 변경:**
+- `ShowDirectionCue()`: `+` (fixation cross) + 아래 회색 이탈릭 direction cue (`<color=#888888><size=65%><i>Reach</i></size></color>`)
+- Go cue (non-REST): `+`와 instruction 사라지고 초록색 "GO" 표시 (`<color=#00CC00>GO</color>`)
+- Go cue (REST): `+`와 "Rest" 그대로 유지 (Go 신호 없음)
+- GOOD → 초록색, BAD → 빨간색 TMP rich text 적용
+- "Place your hand..." → "Put your hand on home position"으로 변경
+- REST 이탈 경고 → "REST — please return to home position"으로 변경
+
+**P키 일시정지 기능 추가 (`TrialGameController_RWR.cs`):**
+- P 누르면 노란색 "PAUSE" 표시, 상태머신 freeze (손 감지 무관)
+- P 다시 누르면 일시정지 전 텍스트 복원
+- `readyTime`, `goTime`, `ttlPlannedTime` 모두 일시정지 시간만큼 shift → 타이밍 보정
+
+**Tab overlay 기본 숨김 (`GameInfoOverlay.cs`):**
+- `showOnStart` 필드 제거, 항상 숨긴 상태로 시작
+- Tab 눌러 열고 닫기
+
+### Experiment TTL List 확장 (`GameSessionController_RWR.cs`)
+
+**`ExperimentTtlEntry`에 per-trial 전체 설정 추가:**
+- `instruction` (0=REST / 1=REACH / 2=REACH+GRASP) — 드롭다운
+- `handMode` (0=Left / 1=Right / 2=Either) — 드롭다운
+- `angleDeg` — 타겟 방향 (도)
+- `distanceCm` — 타겟 거리 (cm)
+
+**전역 `experimentInstruction`, `experimentHandMode` 제거** → 모든 설정이 entry별로 독립
+**`ExperimentTtlEntryDrawer.cs`** 7행으로 확장 (Instruction/Hand/Angle/Distance 추가)
+
+### Calibration 양손 지원
+
+- `ShowCalibrationScreen()`에서 `leapInput.allowEitherHand = true` 설정
+- 왼손/오른손 모두 calibration 가능
+- Calibration 안내 텍스트 "either hand" 반영
+- Trial 시작 후 각 trial의 hand mode 설정으로 정상 리셋
+
+### MCP 커서 손 감지 연동
+
+- `McpInStart()`, `McpInTarget()`에 `leapInput.hasIndexJointData` 조건 추가
+- 손이 사라지면 zone 판정 false → ghost 커서로 인한 hold 오작동 방지
+- HoldInStart 중 트래킹 끊기면 hold 리셋 (false start는 발생 안 함)
+
+### 데이터 저장 좌표계 변경 (`TrialDataLogger.cs`)
+
+- **Global → 상대좌표 (start 기준 +1m offset)**
+- 공식: `saved = global - startPos + (1,1,1)`
+- 시작지점 = 항상 `(1,1,1)`, 가동범위(1m 이내) 내에서 항상 양수 보장
+- 타겟 위치도 동일 변환하여 헤더에 기록
+- 헤더에 `coordinate_system: relative_to_start_plus_1m` 명시
