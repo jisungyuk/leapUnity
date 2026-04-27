@@ -721,3 +721,43 @@ Scene 컬럼명 변경 이후 기존 씬 헤더를 일괄 수정하고 툴팁을
 **코드 정리:**
 - `TrialGameController_RWR.cs` `EnterFeedback()` 에서 WarmUp 블록 제거
 - `LabChartFro.cs` 에서 `WarmUpOutputs()` 메서드 완전 제거
+
+---
+
+## 2026-04-27 (Session 3)
+
+### Session CSV ts/cs 파싱 버그 수정
+
+**버그:** `ts=0, cs=.` (SinglePulse 의도) 인 trial이 NoPulse로 동작하는 문제
+- 원인: `ttlEnabled = ParseTtlEnabled(tr.ts) && ParseTtlEnabled(tr.cs)` — cs가 비어있으면 false가 되어 ttlEnabled=false
+- 수정: `ttlEnabled = ParseTtlEnabled(tr.ts)` — ts만으로 결정. cs 비어있음 = SinglePulse (doublePulse=false)
+
+**cs 양수 자동 음수 처리:**
+- cs에 양수가 입력되면 자동으로 음수로 변환 (`-Mathf.Abs(...)`)
+- Conditioning Stimulus는 항상 Testing Stimulus 이전에 발사되어야 하므로 반드시 0 이하
+
+### LabChart 페이지 매칭 문제 조사 및 결론
+
+**문제:** NoPulse trial에서 LabChart FRO output이 없으니 Comment 페이지가 생성되지 않아 trial 번호와 페이지 번호 불일치
+
+**시도한 해결책 — AppendComment:**
+- `LabChartFro.AppendCommentCoroutine()` 추가: NoPulse trial에서 TTL 발사 시점에 LabChart COM으로 텍스트 comment 기록
+- `Task.Run` (백그라운드 스레드) → coroutine (`yield return null` 후 동기 실행)으로 교체 — 백그라운드 스레드에서 `Debug.Log` 미출력 문제 해결
+- NoPulse trial에서만 호출 (`!ttlEnabled`) — FRO 작동 trial에는 FRO comment가 이미 자동으로 남으므로 중복 방지
+
+**결론:**
+- `AppendComment`는 텍스트 주석을 기록하지만 LabChart Comment mode의 페이지는 생성하지 않음 (페이지는 FRO 발사 이벤트로만 생성됨)
+- **Event mode 사용으로 결론:** TriggerBox TTL이 모든 trial에서 발사되므로 Event mode 페이지 수 = 전체 trial 수로 항상 일치
+- AppendComment는 NoPulse trial에 텍스트 라벨만 남기는 용도로 유지
+
+### 실제 TMS 하드웨어 연결 계획 확정
+
+```
+Output1 (Conditioning) → Conditioning TMS 입력
+Output2 (Testing)      → Testing TMS 입력
+Testing TMS feedback   → Trigger 채널 (LabChart Event 페이지 트리거)
+Conditioning TMS feedback → Channel 6
+```
+
+- SinglePulse trial: Output1 비활성 → Conditioning TMS 신호 없음 → Channel 6 flat (정상)
+- NoPulse trial: 두 TMS 모두 신호 없음 → Event mode 페이지는 TriggerBox로 생성

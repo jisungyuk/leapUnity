@@ -148,6 +148,49 @@ public class LabChartFro : MonoBehaviour
         Debug.Log("[LabChartFro] FRO reset (NoPulse): both outputs disabled.");
     }
 
+    /// <summary>
+    /// Appends a comment to the active LabChart document at the current recording position.
+    /// Runs on a background thread — non-blocking, no TMS or FRO hardware interaction.
+    /// </summary>
+    public IEnumerator AppendCommentCoroutine(string text)
+    {
+        yield return null; // defer one frame so TTL pulse timing is not affected
+
+        string vbs = null;
+        try
+        {
+            vbs = Path.Combine(Path.GetTempPath(), "labchart_comment.vbs");
+            File.WriteAllText(vbs,
+                "On Error Resume Next\r\n" +
+                "Set App = GetObject(,\"ADIChart.Application\")\r\n" +
+                "If Err.Number <> 0 Then WScript.Quit 1\r\n" +
+                "On Error GoTo 0\r\n" +
+                "Set Doc = App.ActiveDocument\r\n" +
+                $"Doc.AppendComment \"{text}\"\r\n",
+                Encoding.ASCII);
+
+            var psi = new System.Diagnostics.ProcessStartInfo("cscript.exe", $"//Nologo \"{vbs}\"")
+            {
+                CreateNoWindow        = true,
+                UseShellExecute       = false,
+                RedirectStandardError = true
+            };
+            using (var proc = System.Diagnostics.Process.Start(psi))
+            {
+                string err = proc.StandardError.ReadToEnd();
+                proc.WaitForExit(2000);
+                if (proc.ExitCode != 0 || !string.IsNullOrEmpty(err))
+                    Debug.LogWarning($"[LabChartFro] AppendComment error: {err}");
+                else
+                    Debug.Log($"[LabChartFro] AppendComment OK: \"{text}\"");
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[LabChartFro] AppendComment failed: {e.Message}");
+        }
+    }
+
     // ── Internal ─────────────────────────────────────────────────────
 
     byte[] EnsureTemplate(ref byte[] cache, ref bool loaded, string path, string label)

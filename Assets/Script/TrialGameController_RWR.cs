@@ -539,6 +539,10 @@ public class TrialGameController_RWR : MonoBehaviour
 
         Debug.Log($"[TrialGameController_RWR] TTL fired — {(ttlFiredTime - goTime) * 1000f:F1} ms from Go (target offset: {ttlOffsetMs} ms)");
 
+        // NoPulse trials have no FRO event — append a text comment so Event mode shows a label.
+        if (!ttlEnabled && froController != null)
+            StartCoroutine(froController.AppendCommentCoroutine($"Trial {currentTrialIndex}"));
+
         // Hardware pulse: write channel byte high, then reset after pulse duration
         if (ttlPort != null && ttlPort.IsOpen)
         {

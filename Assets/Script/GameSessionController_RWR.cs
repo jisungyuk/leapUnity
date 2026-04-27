@@ -636,8 +636,8 @@ public class GameSessionController_RWR : MonoBehaviour
                 continue;
             }
 
-            // NoPulse if either ts or cs is "." or empty
-            bool ttlEnabled = ParseTtlEnabled(tr.ts) && ParseTtlEnabled(tr.cs);
+            // NoPulse only if ts is "." or empty; cs empty/dot = SinglePulse (not NoPulse)
+            bool ttlEnabled = ParseTtlEnabled(tr.ts);
 
             built.Add(new RwrTrialConfig
             {
@@ -650,7 +650,7 @@ public class GameSessionController_RWR : MonoBehaviour
                 handMode          = handMode,
                 ttlEnabled        = ttlEnabled,
                 ttlOffsetMs       = ParseTtlOffset(tr.ts),
-                ttl2OffsetMs      = ParseTtlOffset(tr.cs),
+                ttl2OffsetMs      = -Mathf.Abs(ParseTtlOffset(tr.cs)),  // cs always non-positive (fires before Testing)
                 instruction       = ParseInstruction(tr.instruction),
                 holdDuration      = ParseFloat(tr.holdDuration),
                 waitForGo         = ParseFloat(tr.waitForGo),
