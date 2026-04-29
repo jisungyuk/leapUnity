@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "com.coplaydev.unity-mcp": "https://github.com/CoplayDev/unity-mcp.git?path=MCPForUnity#v9.3.1",
+    "com.coplaydev.unity-mcp": "https://github.com/CoplayDev/unity-mcp.git?path=MCPForUnity#v9.6.8",
     "com.ultraleap.tracking": "7.2.0",
     "com.unity.collab-proxy": "2.5.2",
     "com.unity.feature.development": "1.0.1",
