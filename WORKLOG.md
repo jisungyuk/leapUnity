@@ -816,3 +816,132 @@ Conditioning TMS feedback → Channel 6
 - 시작지점 = 항상 `(1,1,1)`, 가동범위(1m 이내) 내에서 항상 양수 보장
 - 타겟 위치도 동일 변환하여 헤더에 기록
 - 헤더에 `coordinate_system: relative_to_start_plus_1m` 명시
+
+## 2026-04-29
+
+### GRIP 게임 모드 구현
+
+#### 신규 스크립트
+- `Assets/Script/TrialGameController_GRIP.cs` — RWR 기반으로 재작성. zone 진입 감지 대신 Physical Hands 물리 인터랙션으로 cylinder를 실제로 잡는 방식. 상태머신: MoveToStart → HoldInStart → ShowDirection → WaitForGo → Executing → Feedback → TrialDone.
+- `Assets/Script/GameSessionController_GRIP.cs` — RWR 구조 유지, 타겟 radius 전달 및 targetSphere 숨김 처리 추가.
+- `Assets/Script/SessionTableController_GRIP.cs`, `TargetTableController_GRIP.cs`, `SessionRow_GRIP.cs`, `TargetRow_GRIP.cs` — 세션/타겟 CSV UI.
+- `Assets/Script/GripTargetListener.cs` — `IPhysicalHandGrab` 직접 구현. `PhysicalHandEvents`의 UnityEvent가 runtime AddComponent 시 null인 문제를 우회하기 위해 C# Action 델리게이트 사용. `isGrabbing` 플래그로 매 프레임 호출되는 `OnHandGrab`에서 grab enter 이벤트 합성.
+- `Assets/Editor/GripGameSceneFixer.cs` — Tools 메뉴 Editor 스크립트. GRIP_Game 씬에서 RWR 컴포넌트를 GRIP 컴포넌트로 교체하고 직렬화 필드 복사.
+
+#### 핵심 설계
+- 타겟: Inspector 할당 sphere 제거 → 코드로 Cylinder 프리미티브 런타임 spawn (`SpawnCylinder`)
+- Cylinder: `Rigidbody(isKinematic=false, useGravity=false)` — GrabHelper가 non-kinematic만 감지하므로
+- 성공 판정: cylinder를 잡으면 즉시 GOOD (early exit), 타이머 만료 시 BAD
+- REST 조건: `AllFingersInStart()` (MCP + 검지끝 + 엄지끝 셋 모두 시작지점 내)
+
+#### 버그 수정
+- `PhysicalHandEvents.onGrabEnter` NullReferenceException → `GripTargetListener`로 교체
+- Cylinder kinematic 설정으로 grab 감지 안 되던 문제 → `isKinematic=false`로 수정
+- Camera 각도 top-down이라 cylinder가 원처럼 보이던 문제 → 45도로 조정 (사용자 직접 수정)
+- RWR 시대 targetSphere가 trial 중에도 보이던 문제 → `ConfirmCalibration()`에서 숨김 처리
+
+#### 시작지점 조건 강화 (이번 세션)
+- `McpInStart()` → `AllFingersInStart()`로 교체: MCP 하나만이 아닌 MCP + 검지끝 + 엄지끝 셋 모두 `startRadius` 내에 있어야 진입 인정
+- 시작지점 스케일 → `Vector3.one * (startRadius * 2f)` (구 형태, 균등 스케일)
+
+#### MCP for Unity 세팅
+- `com.coplaydev.unity-mcp` v9.3.1 → v9.6.8 업그레이드 (Python 서버 v9.6.8과 버전 맞춤)
+- `~/.claude/settings.json`에 `mcp-for-unity.exe` 서버 등록
+
+### 다음 작업
+- ~~GRIP_Game 씬의 `startSphere` 오브젝트를 Sphere 프리미티브로 교체~~ ✓ 완료
+- `startRadius` Inspector 값 조정 (세 포인트 동시 진입 조건에 맞게 넉넉하게, 약 5~6cm 권장)
+- 실제 플레이 테스트로 AllFingersInStart 조건 체감 확인 및 튜닝
+
+## 2026-07-24
+
+### RWR — 4/27 이후 미검증 체크리스트 점검 + 재보정 버그 수정
+
+3개월 공백 후 RWR 진행 상황 점검. 4/27 Session 1에 남겨뒀던 TODO 5개 중 코드/에셋으로 확인 가능한 3개는 이미 반영되어 있었음을 확인:
+- `PrepareOutputs(out1Abs, out2Abs, doublePulse)` 새 시그니처로 RWR/RWR2/GRIP 모두 정상 호출 중
+- `SessionRow_RWR` prefab에 TS/CS 필드 정상 반영 (TTL1/TTL2Offset 잔재 없음)
+- `RWR_Game` 씬 LabChartFro에 DoublePulse/SinglePulse/NoPulse 3개 VBS 경로 정상 연결, 파일도 `Source/`에 존재
+
+남은 2개는 실제 플레이로 검증:
+- Tab 오버레이 — 정상 동작 확인
+- SHIFT+SPACE 재보정 — **버그 발견**: experimentingMode에서 재보정 시 현재 trial(예: 6)에 머물러야 하는데 다음 trial(7)로 건너뛰는 문제. 원인은 `RunExperimentTrial()`이 호출될 때마다 `experimentTrialCounter`를 무조건 증가시키는데, `Recalibrate()`가 이 카운터를 보정하지 않고 그대로 재호출했기 때문. `GameSessionController_RWR.cs` `Recalibrate()`에서 `RunExperimentTrial()` 호출 직전 `experimentTrialCounter--`를 추가해 증가분을 상쇄하도록 수정. 실제 플레이로 trial 6 유지 확인 완료.
+- `RWR2.cs`도 같은 구조를 갖고 있지만 (experimentingMode 브랜치가 아예 trial을 재시작하지 않는 등) 별도 문제가 있어 보임 — 이번 세션 범위 아님, RWR2 사용 시 별도 점검 필요.
+
+### PowerLab FRO OFF→ON 크래시 — Preload+Bounce 검증 스크립트 작성
+
+**배경:** 2026-04-27에 근본 원인을 규명해둔 크래시(SP/NoPulse → DoublePulse, 즉 Output1 OFF→ON 전환 시 샘플링 도중 PowerLab 펌웨어 크래시)에 대해, 사용자가 별도 프로젝트(TMSviewer)에서 발견한 "Preload + Auto-bounce" 해법(`reference/FROmodeissue.md`)이 적용 가능한지 검토.
+
+- FROmodeissue.md의 해법은 `StartSampling` 직전에 SP+DP `PlayMessage`를 미리 보내고, Stop/Start bounce 전후로 두 번 반복하는 방식. 단, 그 앱은 프로그램이 `StartSampling`도 직접 호출하는 구조였고, 이 프로젝트는 LabChart 녹화를 실험자가 수동으로 시작하는 구조라 그대로 이식 불가.
+- 방향 결정: Unity가 COM으로 `StartSampling`/`StopSampling`까지 직접 제어하는 쪽으로 간다 (나중에 `GameSessionController_RWR.cs`의 "LabChart open — confirm recording manually" 수동 단계를 대체할 계획).
+- `reference/App_design_extracted`, `TMSDataCollection_RT_extracted`(같은 연구실의 과거 MATLAB 앱) 소스에서 실제 COM 메서드명이 `Doc.StartSampling` / `Doc.StopSampling` (인자 없음)임을 확인.
+- **RWR 프로덕션 코드에 반영하기 전에** 실제 하드웨어로 먼저 검증하기로 함 — FROmodeissue.md의 버그(최초 Start 직후 미초기화)와 이 프로젝트의 버그(샘플링 도중 OFF→ON 전환)가 같은 메커니즘인지 확신이 없기 때문.
+
+**작성한 파일 — `Source/FroInitTest.vbs` (독립 실행, Unity 미관여):**
+- `cscript //Nologo "Source\FroInitTest.vbs"`로 직접 실행하는 순수 VBS. `Source/SinglePulse.vbs`/`DoublePulse.vbs`/`NoPulse.vbs`에서 `PlayMessage` hex를 정규식으로 직접 추출해서 재사용 (하드코딩 안 함).
+- Phase 1: Preload+Bounce 초기화 시퀀스 (SP→DP→Start→500ms→Stop→SP→DP→Start)
+- Phase 2: 이 프로젝트의 정확한 크래시 조건 재현 (DP→SP→NoPulse→DP, 마지막이 OFF→ON)
+- Phase 3: Bounce 추가 없이 사이클 2회 더 반복 — 첫 OFF→ON만 우연히 통과하는지, 반복해도 안정적인지 확인
+- 각 호출 전/후로 로그를 찍어서, 스크립트가 멈추거나 에러가 나면 정확히 어느 호출에서 크래시했는지 특정 가능하게 설계.
+- LabChart 미실행 상태에서 문법 오류 없이 정상 동작(연결 실패 에러까지 정상 출력) 확인 완료. 실제 하드웨어 테스트는 미실시.
+
+**추가 아이디어 (통합 단계에서 반영):** `LabChartStatusChecker.IsOpen`이 false일 때(LabChart 자체가 안 켜져 있을 때) 같은 키로 LabChart 실행파일을 `Process.Start()`로 띄워주는 것도 같이 추가하면 좋겠음 — 지금은 LabChart가 실행 중이어야만 COM 연결이 되므로.
+
+### PowerLab FRO 실제 하드웨어 테스트 — 결과 정리 (같은 세션, 실시간 진행)
+
+**테스트 1 — `FroInitTest.vbs` (Preload+Bounce, 트리거 없음, `DP→SP→NoPulse→DP`):**
+- 결과: **크래시.** Phase 1 완료 5초 후(트리거 없이 순수 `PlayMessage` 재구성만으로) `DP (trial D)` — 즉 NoPulse(둘 다 off)→DoublePulse(둘 다 on) 전환에서 크래시.
+- 증거: 콘솔 로그는 전부 `-> OK`로 찍혔지만(COM 호출 자체는 동기 응답을 바로 줌), LabChart 창 캡처에서 차트 데이터가 딱 5초 지점에서 멈춰있고 창 제목이 `Idle`, `▶ Start` 버튼 상태였음 — 즉 실제 하드웨어 크래시는 COM 호출 이후 비동기로 발생하며 스크립트의 `Err.Number` 체크로는 감지 불가.
+- 사용자 확인: 실제로 LabChart에 팝업 다이얼로그가 떴었음 (프로그램 자체는 살아있는 상태).
+
+**테스트 2 — `FroSpDpToggleTest.vbs` (Preload+Bounce, NoPulse 없이 SP↔DP만 6회 토글, Output2는 항상 유지):**
+- 결과: **크래시 없음.** 에러 없이 끝까지 정상 동작.
+- 시사점: 크래시는 "Output1만의 OFF→ON"이 아니라, **Output2까지 포함해 둘 다 꺼진 상태(NoPulse)에서 둘 다 켜진 상태(DP)로 가는 전환**에서만 발생하는 것으로 보임.
+
+**테스트 3 — `FroTtlTest.ps1` (Preload+Bounce + 매 arm마다 실제 TTL 트리거 발사, `DP→SP→NoPulse→DP` 1사이클):**
+- COM5 시리얼로 `TrialGameController_RWR.cs`의 `FireTtlPulse()`와 동일한 프로토콜(115200bps, channel 1 = 0x01, 100ms 유지 후 리셋)을 재현.
+- 결과: **크래시 없음.** NoPulse→DP 전환도 실제 트리거 포함 시 통과.
+- 시사점: 트리거 없이 `PlayMessage`만 반복 재구성하는 것(테스트 1)과, 매번 실제로 발화까지 시키는 것(테스트 3)이 다른 결과를 냄 — "실제 트리거 발화가 껴 있으면 안전하다"는 가설이 유력해짐. (실제 프로덕션은 `ttlEnabled` 무관하게 매 trial TTL이 항상 발사되므로, 이 조건과 일치.)
+
+**테스트 4 — `FroTtlCycleTest.ps1` (동일 조건으로 5사이클 반복, 총 20회 arm+발화):**
+- 1차 실행: **크래시 없음.** 5사이클 전부 정상 완료, LabChart 반응 정상. (부작용: 사이클마다 COM5 포트를 새로 열고/닫아서 Windows USB 연결/해제 알림음이 반복됨 — 프로덕션 코드는 포트를 세션 시작 시 한 번만 열어서 유지하므로 실제로는 발생 안 할 현상.)
+- 2차 실행 (LabChart를 새로 켜거나 녹화를 재시작하지 않고, 1차 실행이 끝난 바로 그 상태에서 동일 스크립트를 다시 실행): **크래시.** `"LabChart Action Failed — There is a problem communicating with the PowerLab 8/35. The USB cable may have been unplugged..."` 팝업 + LabChart 상태 표시 깜빡임. OK를 눌러도 정상 복귀 안 되고 **재시작(USB 재연결 등) 필요한 수준의 통신 단절.**
+
+**추가 발견 — `reference/FROmodeissue2.md` 검토:**
+- 사용자가 TMSviewer 프로젝트의 실제 동작 코드(`realtime_viewer.py`, `labchart_client.py`)를 정리한 문서를 추가로 확인.
+- 핵심: 그 레퍼런스 앱에는 **NoPulse 개념이 아예 없음.** SP도 Output2(Testing)는 항상 켜진 채 Output1(Conditioning)만 토글하는 구조 — Output2를 꺼본 적이 자체가 없어서, 이 프로젝트만의 "둘 다 꺼짐(NoPulse)" 상태에서 복귀하는 시나리오는 애초에 검증된 적 없는 케이스였음.
+- 또한 그 코드는 `doc.StartSampling(0, False, 0)`처럼 명시적 인자를 넘김 (이 프로젝트는 그동안 인자 없이 `StartSampling()`만 호출).
+
+**테스트 5 — `FroIsolationTest.ps1` (`StartSampling(0, False, 0)`로 변경, `NoPulse→SP`만 단독 테스트 + `NoPulse→DP`):**
+- 1차 실행: 크래시 없음 (5단계 전부 통과, `NoPulse→SP`와 `NoPulse→DP` 둘 다 성공).
+- 같은 LabChart 세션에 재실행(2차): 크래시 없음. (이전엔 세션당 Bounce 2회면 USB 통신이 끊어졌었는데, 이번엔 안 끊어짐 — 인자 변경이 도움 됐을 가능성 시사.)
+- 다만 이 시점에선 반복 횟수가 적어(각 1~2회) 우연일 가능성을 배제 못함.
+
+**테스트 6 — `FroTtlCycleTest.ps1`에 `StartSampling(0, False, 0)` 반영 후 15사이클 재실행:**
+- 결과: **여전히 크래시.** 이번엔 cycle 2의 `DP (trial D) *** OFF→ON ***`에서 (콘솔 로그는 `-> OK`로 찍힌 후 비동기로) 크래시.
+- 결론: `StartSampling` 인자 변경은 근본 해결책이 아니었음 — 테스트 5의 성공은 우연이었던 것으로 판단.
+
+**테스트 7 — `FroSpDpCycleTest.ps1` (NoPulse는 아예 안 쓰고 `SP↔DP`만 30회 반복 토글, 동일한 Preload+Bounce + 실제 트리거 + 2.5s/4s 간격):**
+- 결과: **크래시 없음. 30/30 토글 전부 통과.**
+- 사용자 확인: 오리지널 프로덕션 버그(Preload 없이 수동 재생하던 시절)는 사실 `SP→DP`와 `NoPulse→DP` **둘 다** 크래시났었음 (WORKLOG 2026-04-27: "SinglePulse 또는 NoPulse 이후 DoublePulse 크래시"). 즉 이번 30회 성공은 우연이 아니라 **원래 크래시의 절반(SP→DP)을 Preload+Bounce가 실제로 고쳤다**는 의미가 큼.
+
+**최종 결론 (이번 세션 종료 시점):**
+- **Preload+Bounce(세션 시작 시 1회) + 매 trial 실제 TTL 발사** 조합은 **SP↔DP 전환(Output2/Testing 상시 유지)을 확실히 안정화시킴** — 30회 반복 무크래시로 검증됨, 원래 프로덕션 크래시의 절반을 실질적으로 해결.
+- 그러나 **NoPulse가 낀 전환(NoPulse↔SP, NoPulse↔DP)은 여전히 간헐적으로 크래시함** — Preload+Bounce, 실제 트리거, 느린 타이밍(2.5s/4s), `StartSampling(0, False, 0)` 인자 변경 등 시도한 어떤 조합으로도 확실히 못 막음. 어떤 실행은 1사이클 만에, 어떤 실행은 5사이클을 버티다 나기도 해서 재현 조건이 확률적인 것으로 보임.
+- 세션당 Bounce를 2회 이상 실행하면(재시작 없이 스크립트 재실행 등) USB 통신 자체가 끊기는 더 심각한 크래시가 날 수 있다는 것도 확인됨 (`StartSampling` 인자 변경 후엔 재현 안 됐지만 우연일 수 있어 신뢰하지 말 것).
+
+**다음 세션 — Unity 통합 방향 (결정됨):**
+
+NoPulse 관련 크래시는 회피 가능하다고 판단 — **NoPulse trial들을 세션 앞/뒤로 따로 묶어서 하나의 독립된 블록으로 배치**하면 (SP/DP 블록과 섞이지 않게), NoPulse↔SP/DP 간 위험한 전환 자체가 거의 발생하지 않음. 기존 Block Design과 비슷하지만, SP/DP끼리는 이제 자유 순서 가능하므로 제약이 훨씬 완화됨.
+
+**TODO (다음 세션):**
+1. `LabChartFro.cs`에 `StartSampling`/`StopSampling` COM 래퍼 추가 (`Source/FroTtlCycleTest.ps1`의 `Invoke-StartSampling`/`Invoke-StopSampling` 패턴 참고 — `SendPlayMessage()`와 동일하게 cscript.exe+임시 VBS 방식으로).
+2. Preload+Bounce 코루틴 추가 (SP→300ms→DP→300ms→StartSampling→500ms→StopSampling→300ms→SP→300ms→DP→300ms→StartSampling, 세션당 **정확히 1회만** 실행되도록 플래그로 가드 — 실수로 중복 실행되면 USB 통신이 끊어질 수 있음, 오늘 확인함).
+3. `GameSessionController_RWR.cs`의 calibration 화면 — 지금 `"LabChart open — confirm recording manually"`([GameSessionController_RWR.cs:217](Assets/Script/GameSessionController_RWR.cs#L217))로 되어 있는 부분을, 키 입력 시 위 Preload+Bounce를 실행해서 녹화까지 자동으로 시작하도록 교체.
+4. `LabChartStatusChecker.IsOpen`이 false일 때(LabChart 자체가 꺼져 있을 때) 같은 키로 LabChart 실행파일을 `Process.Start()`로 띄워주는 것도 함께 추가.
+5. 세션/타겟 테이블 쪽에서 **NoPulse(TTL 비활성) trial들을 SP/DP trial과 섞이지 않게 블록으로 묶어 배치**하는 규칙 반영 (UI 경고나 자동 정렬 등 — 구체적 방식은 다음 세션에 논의).
+6. 통합 후 실제 하드웨어로 재검증: SP/DP 자유 순서 + NoPulse 블록 분리 조건에서 크래시 없는지 확인.
+
+**참고용으로 남겨둔 테스트 스크립트** (`Source/Fro*.vbs`, `Source/Fro*.ps1`) — 통합 후 회귀 확인이나 재검증에 재사용 가능.
+
+### 곁가지 (RWR 아님, 미착수)
+GRIP 양손 협력 과제 확장, Leap Motion Polhemus 기반 공간 캘리브레이션, 게임 모드 범용 블루프린트 문서 — `bimanualplan.md`, `CALIBRATION_PLAN.md`, `GAME_MODE_BLUEPRINT.md` 참고. 코드 구현은 아직 없음.

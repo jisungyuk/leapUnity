@@ -485,6 +485,7 @@ public class GameSessionController_RWR : MonoBehaviour
                 targetSphere.transform.position = experimentTrial.targetPos;
                 targetSphere.transform.localScale = new Vector3(diameter, diameter, diameter);
             }
+            experimentTrialCounter--; // cancel out RunExperimentTrial's increment so we redo the same trial number
             RunExperimentTrial();
         }
         else
