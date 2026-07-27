@@ -402,7 +402,7 @@ public class TrialGameController_RWR : MonoBehaviour
 
             if (ShouldLog())
             {
-                dataLogger.NoteFirstStimTiming(ComputeFirstStimRelativeToGoMs());
+                dataLogger.NoteJitterFromScheduled(ComputeJitterFromScheduledMs());
                 dataLogger.EndAndSave();
             }
 
@@ -714,25 +714,29 @@ public class TrialGameController_RWR : MonoBehaviour
     }
 
     /// <summary>
-    /// The trigger pulse always fires 500ms before Go regardless of ttlOffsetMs/ttl2OffsetMs
-    /// (see ShowDirectionCue()), so "TTL fired X ms from Go" is always ~-500ms and doesn't
-    /// tell you anything about the configured stimulation timing. What actually matters is
-    /// when the first real stimulus (whichever of Testing/Conditioning fires first — CS can
-    /// be configured before OR after TS) lands relative to Go. That's trigger-to-Go time
-    /// (measured, includes real jitter) plus the first stimulus's fixed hardware delay from
-    /// the trigger (500 + ttlOffsetMs, and also + ttl2OffsetMs for Conditioning if earlier).
+    /// Pure timing jitter, independent of how ts/cs are configured. "First fire X ms from
+    /// Go cue" (the earlier version of this) mixed the *designed* offset (ts, or ts+cs if
+    /// Conditioning is set to fire first) together with the actual jitter, which is
+    /// ambiguous to read without knowing that trial's design — e.g. 55ms could mean "5ms
+    /// jitter on a trial designed for 50ms" or "55ms of jitter on a trial designed for 0".
+    ///
+    /// The fix: measure deviation from THIS trial's own scheduled stimulus time instead of
+    /// from Go cue. Since PowerLab's hardware delay (500+ts, or 500+ts+cs) is fixed/precise
+    /// (confirmed — no jitter there), the designed-offset term cancels out algebraically:
+    ///   first-stim-vs-Go = (ttlFiredTime - goTime)*1000 + (500 + designedOffset)
+    ///   first-stim-vs-scheduled = first-stim-vs-Go - designedOffset
+    ///                           = (ttlFiredTime - goTime)*1000 + 500
+    /// So this number never needs ttlOffsetMs/ttl2OffsetMs at all — whatever the trial's ts/cs
+    /// design is, this is always pure jitter (both the trigger-fire detection's and the
+    /// Go-detection's polling delay, still fully included — nothing is lost by dropping the
+    /// offset terms, they were always going to cancel).
     /// Returns NaN if not yet computable (TTL hasn't fired, or ttlEnabled is false).
     /// </summary>
-    float ComputeFirstStimRelativeToGoMs()
+    float ComputeJitterFromScheduledMs()
     {
         if (!ttlEnabled || !ttlFired) return float.NaN;
 
-        float out2Abs = 500f + ttlOffsetMs;                  // Testing (TS)
-        float out1Abs = 500f + ttlOffsetMs + ttl2OffsetMs;    // Conditioning (CS), only if double-pulse
-        bool  doublePulseNow = ttl2OffsetMs != 0f;
-        float firstStimAbsMs = doublePulseNow ? Mathf.Min(out1Abs, out2Abs) : out2Abs;
-
-        return (ttlFiredTime - goTime) * 1000f + firstStimAbsMs;
+        return (ttlFiredTime - goTime) * 1000f + 500f;
     }
 
     // ── Debug overlay ────────────────────────────────────────────────
@@ -753,7 +757,7 @@ public class TrialGameController_RWR : MonoBehaviour
         if (!ttlEnabled)
             ttlStatus = "TTL: none";
         else if (ttlFired && goTime > 0f)
-            ttlStatus = $"TTL: fired — first fire {ComputeFirstStimRelativeToGoMs():F1} ms from Go cue";
+            ttlStatus = $"TTL: fired — first fire {ComputeJitterFromScheduledMs():F1} ms from scheduled";
         else if (ttlFired)
             ttlStatus = "TTL: fired (awaiting Go)";
         else if (ttlPending)

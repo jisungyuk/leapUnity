@@ -3851,7 +3851,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   rwrCalibrationOrigin: {x: 0, y: 0, z: 0}
   rwrCalibrated: 0
-  currentGameMode: 0
+  currentGameMode: 3
   startTrialIndex: 1
   enableTrialLogging: 0
   launchedFromMainMenu: 0

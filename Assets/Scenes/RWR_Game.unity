@@ -274,6 +274,7 @@ MonoBehaviour:
   leapProvider: {fileID: 1815525967}
   labChartStatus: {fileID: 712415096}
   labChartFro: {fileID: 492172704}
+  sessionController: {fileID: 484277109}
 --- !u!1 &142710445
 GameObject:
   m_ObjectHideFlags: 0
@@ -606,7 +607,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   rwrCalibrationOrigin: {x: 0, y: 0, z: 0}
   rwrCalibrated: 0
-  currentGameMode: 0
+  currentGameMode: 3
   startTrialIndex: 1
   enableTrialLogging: 0
   launchedFromMainMenu: 0
@@ -1082,21 +1083,21 @@ MonoBehaviour:
     ttlOffsetMs: 0
     ttl2OffsetMs: 0
     instruction: 1
-    handMode: 0
+    handMode: 1
     angleDeg: 90
     distanceCm: 20
   - ttlEnabled: 1
     ttlOffsetMs: 0
     ttl2OffsetMs: -100
     instruction: 1
-    handMode: 0
+    handMode: 1
     angleDeg: 90
     distanceCm: 20
   - ttlEnabled: 1
     ttlOffsetMs: 0
     ttl2OffsetMs: 0
     instruction: 1
-    handMode: 0
+    handMode: 1
     angleDeg: 90
     distanceCm: 20
   - ttlEnabled: 1
@@ -1306,9 +1307,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: d3f36609f3ec8884c9a021b139a4f4bb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  vbsDoublePulsePath: C:\Users\Jisung Yuk\Documents\leapUnity\Source\DoublePulse.vbs
-  vbsSinglePulsePath: C:\Users\Jisung Yuk\Documents\leapUnity\Source\SinglePulse.vbs
-  vbsNoPulsePath: C:\Users\Jisung Yuk\Documents\leapUnity\Source\NoPulse.vbs
+  vbsDoublePulseFileName: DoublePulse.vbs
+  vbsSinglePulseFileName: SinglePulse.vbs
+  vbsNoPulseFileName: NoPulse.vbs
   interMessageDelayMs: 50
 --- !u!4 &492172705
 Transform:
@@ -3199,6 +3200,7 @@ MonoBehaviour:
   ttlLampOnColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
   ttlLampDuration: 0.1
   froController: {fileID: 492172704}
+  skipLabChart: 0
   startHeight: 0.05
   targetHeight: 0.05
   leapInput: {fileID: 1807347969}

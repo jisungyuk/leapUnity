@@ -66,34 +66,46 @@ actual configured stimulation timing. Setting `ts = 0` does **not** make this nu
 
 ## 3. What actually matters, and how it's computed now
 
-What you actually want to know is: **when did the first real stimulus (TS or CS,
-whichever fires first — CS's offset can be negative *or* positive, so either can be
-first) actually land, relative to Go?**
+A first attempt measured "when did the first real stimulus (TS or CS, whichever fires
+first) actually land, relative to Go" — trigger-to-Go time (measured, jitter included)
+plus that stimulus's fixed hardware delay from the trigger. That works, but it's
+ambiguous to read on its own: a trial designed for CS to fire 50ms before Go and a trial
+designed to fire exactly at Go both produce numbers that mix the *designed* offset
+together with the *actual* jitter — reading "55ms" doesn't tell you whether that's 5ms
+of jitter on a 50ms-offset trial, or 55ms of jitter on a 0ms-offset trial, unless you
+already know that trial's ts/cs design.
 
-That's: (measured trigger-to-Go time, jitter included) + (that stimulus's fixed
-hardware delay from the trigger). Both jittery Unity-side timestamps (`ttlFiredTime`,
-`goTime`) are folded in automatically since the formula uses the real measured values,
-not the planned ones:
+The fix: measure deviation from **this trial's own scheduled stimulus time** instead of
+from Go cue. Since PowerLab's hardware delay (`500 + ts`, or `500 + ts + cs`) is fixed
+and precise (§2 — no jitter there), the designed-offset term cancels out algebraically:
 
-```csharp
-// TrialGameController_RWR.cs — ComputeFirstStimRelativeToGoMs()
-float out2Abs = 500f + ttlOffsetMs;                  // Testing (TS), absolute delay from trigger
-float out1Abs = 500f + ttlOffsetMs + ttl2OffsetMs;   // Conditioning (CS), absolute delay from trigger
-bool  doublePulseNow = ttl2OffsetMs != 0f;
-float firstStimAbsMs = doublePulseNow ? Mathf.Min(out1Abs, out2Abs) : out2Abs;
-
-return (ttlFiredTime - goTime) * 1000f + firstStimAbsMs;
+```
+first-stim-vs-Go        = (ttlFiredTime - goTime)*1000 + (500 + designedOffset)
+first-stim-vs-scheduled = first-stim-vs-Go - designedOffset
+                         = (ttlFiredTime - goTime)*1000 + 500
 ```
 
-Sanity check: if `ts = 0` and there's no CS (SinglePulse), this reduces to
-`(ttlFiredTime - goTime)*1000 + 500`, and since `ttlFiredTime - goTime` is ideally exactly
-`-0.5s`, the result is `0 + jitter` — i.e. "the stimulus landed right at Go, give or take
-the real measured jitter." That matches what `ts` is supposed to mean.
+So the useful number never needs `ttlOffsetMs`/`ttl2OffsetMs` at all — whatever a trial's
+ts/cs design is, this is always pure jitter, and it still includes both jittery
+Unity-side timestamps in full (nothing is lost by dropping the offset terms; they were
+always going to cancel):
 
-This is shown on the debug overlay as `TTL: fired — first fire {X:F1} ms from Go cue`,
-and logged per-trial to the kinematic CSV header as `# first_stim_ms_from_go: {X}` (see
-`TrialDataLogger.NoteFirstStimTiming()`), called right before `EndAndSave()` in
-`Update_Feedback()`.
+```csharp
+// TrialGameController_RWR.cs — ComputeJitterFromScheduledMs()
+if (!ttlEnabled || !ttlFired) return float.NaN;
+return (ttlFiredTime - goTime) * 1000f + 500f;
+```
+
+Sanity check: `ttlFiredTime - goTime` is ideally exactly `-0.5s` (the trigger fires
+500ms before Go by design, §1), so the ideal result is `0 + jitter` — "this trial's
+stimulus landed exactly where it was scheduled, give or take the measured jitter" —
+regardless of what ts/cs happened to be configured to.
+
+This is shown on the debug overlay as `TTL: fired — first fire {X:F1} ms from scheduled`,
+and logged per-trial to the kinematic CSV header as `# jitter_from_scheduled_ms: {X}`
+(see `TrialDataLogger.NoteJitterFromScheduled()`), called right before `EndAndSave()` in
+`Update_Feedback()`. The trial's actual ts/cs design is already logged separately as
+`# ttl_offset_ms: {...}`, so nothing about the design is lost by switching to this framing.
 
 One guard worth knowing about: there's a window — between the trigger firing and Go
 actually happening (~500ms wide) — where `ttlFired` is already `true` but `goTime` isn't
@@ -127,12 +139,14 @@ same trial.)
 
 Don't just quote the theoretical worst-case bound from §4 — it's a conservative upper
 limit, not what actually happened in the dataset. Before writing this up, pull the
-`first_stim_ms_from_go` value out of every trial's CSV header (`TrialDataLogger.cs`) and
-report the empirical mean and SD (or range) instead. Something like:
+`jitter_from_scheduled_ms` value out of every trial's CSV header (`TrialDataLogger.cs`)
+and report the empirical mean and SD (or range) instead — it's already pure jitter with
+each trial's ts/cs design canceled out (§3), so no further adjustment is needed before
+averaging across trials with different designs. Something like:
 
 ```
 # quick pass, one project you already have the file layout for
-grep "first_stim_ms_from_go" session_*/01/*.csv | cut -d: -f2
+grep "jitter_from_scheduled_ms" session_*/01/*.csv | cut -d: -f2
 ```
 
 then compute mean/SD (or median/IQR if the distribution looks skewed) over those numbers
@@ -145,16 +159,17 @@ and use that instead of, or alongside, the theoretical bound.
 > PowerLab system then delivered TS and CS at fixed hardware-timed delays from that
 > trigger. Because the trigger itself was scheduled by the presentation software's
 > per-frame update loop (synchronized to the display refresh rate, `<F> Hz`), the
-> realized stimulus-to-Go-cue interval carried a small timing jitter (measured
-> `<MEAN> ± <SD> ms` across all trials, software-side only; hardware-side delay from
-// trigger detection to stimulus delivery was not software-timed and negligible).
+> realized trigger timing carried a small, per-trial timing jitter, measured relative to
+> each trial's own scheduled time (`<MEAN> ± <SD> ms` across all trials, software-side
+> only; hardware-side delay from trigger detection to stimulus delivery was not
+> software-timed and negligible).
 
 **Longer version (if precise timing is a focal point / a reviewer might push on this):**
 
 > Stimulus timing was controlled by a two-stage pipeline. A TTL trigger pulse was sent
 > from the presentation software (Unity, [version]) to the stimulator (ADInstruments
 > PowerLab [model] / [FRO hardware]) 500 ms before the nominal Go cue. From that
-// trigger, PowerLab's own internal timer — independent of the presentation software —
+> trigger, PowerLab's own internal timer — independent of the presentation software —
 > delivered the Testing stimulus at a fixed programmed delay and the Conditioning
 > stimulus at a second fixed programmed delay (which could precede or follow the Testing
 > stimulus depending on condition), configured per trial. This hardware-timed interval
@@ -164,17 +179,16 @@ and use that instead of, or alongside, the theoretical bound.
 > per-frame polling loop, synchronized to the display refresh rate (`<F> Hz`, frame
 > duration ≈ `<1000/F>` ms). Because both (a) the detection of the Go-cue transition and
 > (b) the detection of the scheduled trigger time were each independently subject to this
-> per-frame polling delay, the realized interval between the trigger and the nominal Go
-> cue deviated from the nominal 500 ms by an amount bounded by one frame duration per
-> trial (≈`<1000/F>` ms), with the two independent polling delays combining to produce a
-> trial-to-trial range of up to approximately two frame durations. This was logged on
-> every trial (planned stimulus onset relative to Go cue, computed from the measured
-> trigger time plus the fixed hardware delay) and the empirical distribution across all
-> `<N>` trials was `<MEAN> ± <SD> ms` (range: `<MIN>` to `<MAX>` ms). Delay from trigger
-> detection to stimulus delivery is governed by the stimulator's internal hardware clock
-> and was not subject to this software-side timing variability.
+> per-frame polling delay, the realized trigger time deviated from that trial's own
+> scheduled time by an amount bounded by one frame duration per trial (≈`<1000/F>` ms),
+> with the two independent polling delays combining to produce a trial-to-trial range of
+> up to approximately two frame durations. This deviation — independent of each trial's
+> stimulation design — was logged on every trial, and the empirical distribution across
+> all `<N>` trials was `<MEAN> ± <SD> ms` (range: `<MIN>` to `<MAX>` ms). Delay from
+> trigger detection to stimulus delivery is governed by the stimulator's internal
+> hardware clock and was not subject to this software-side timing variability.
 
 Fill in `<F>` (refresh rate actually used during data collection — confirm via Windows
 display settings or `Screen.currentResolution.refreshRateRatio`, not assumed), `<N>`
 (trial count), and the `<MEAN>/<SD>/<MIN>/<MAX>` from the logged
-`first_stim_ms_from_go` values, not the theoretical bound.
+`jitter_from_scheduled_ms` values, not the theoretical bound.

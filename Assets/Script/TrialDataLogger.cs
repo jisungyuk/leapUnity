@@ -45,7 +45,7 @@ public class TrialDataLogger : MonoBehaviour
     float holdDuration, goDelay, moveTimeout, feedbackDuration;
     float ttlOffsetMs;
     float readyTime_s, goTime_s;
-    float firstStimRelativeToGoMs = float.NaN; // see TrialGameController_RWR.ComputeFirstStimRelativeToGoMs()
+    float jitterFromScheduledMs = float.NaN; // see TrialGameController_RWR.ComputeJitterFromScheduledMs()
 
     CultureInfo ic = CultureInfo.InvariantCulture;
 
@@ -99,7 +99,7 @@ public class TrialDataLogger : MonoBehaviour
 
         samples.Clear();
         ttlFiredUsFromReady = -1;
-        firstStimRelativeToGoMs = float.NaN;
+        jitterFromScheduledMs = float.NaN;
         recording = true;
     }
 
@@ -115,14 +115,15 @@ public class TrialDataLogger : MonoBehaviour
     }
 
     /// <summary>
-    /// Records when the first real stimulus (whichever of Testing/Conditioning fires first)
-    /// actually landed relative to the Go cue, in ms — the measured jitter figure shown on
-    /// the debug overlay (TrialGameController_RWR.ComputeFirstStimRelativeToGoMs()). NaN if
-    /// not applicable (e.g. a NoPulse/TTL-disabled trial).
+    /// Records the measured timing jitter for this trial, in ms — how far the trigger
+    /// actually landed from where it was scheduled, independent of that trial's ts/cs design
+    /// (see TrialGameController_RWR.ComputeJitterFromScheduledMs() for why the designed
+    /// offset cancels out algebraically). NaN if not applicable (e.g. a NoPulse/TTL-disabled
+    /// trial).
     /// </summary>
-    public void NoteFirstStimTiming(float msFromGo)
+    public void NoteJitterFromScheduled(float jitterMs)
     {
-        firstStimRelativeToGoMs = msFromGo;
+        jitterFromScheduledMs = jitterMs;
     }
 
     public void EndAndSave()
@@ -227,9 +228,10 @@ public class TrialDataLogger : MonoBehaviour
         float ttlFired_s_fromReady = (ttlFiredUsFromReady >= 0) ? (ttlFiredUsFromReady / 1_000_000f) : -1f;
         sb.AppendLine($"# ttl_offset_ms: {ttlOffsetMs.ToString(ic)}");
         sb.AppendLine($"# ttl_fired_s_fromReady: {ttlFired_s_fromReady.ToString(ic)}");
-        // Measured jitter: when the first real stimulus (TS or CS, whichever fires first)
-        // actually landed relative to the Go cue, in ms. NaN if not applicable (e.g. NoPulse).
-        sb.AppendLine($"# first_stim_ms_from_go: {(float.IsNaN(firstStimRelativeToGoMs) ? "NaN" : firstStimRelativeToGoMs.ToString(ic))}");
+        // Measured timing jitter for this trial, in ms — deviation from this trial's own
+        // scheduled trigger time, independent of its ts/cs design (see
+        // TrialGameController_RWR.ComputeJitterFromScheduledMs()). NaN if not applicable.
+        sb.AppendLine($"# jitter_from_scheduled_ms: {(float.IsNaN(jitterFromScheduledMs) ? "NaN" : jitterFromScheduledMs.ToString(ic))}");
 
         // Columns
         sb.AppendLine("t_ms_from_ready,state_code,ttl,idx_x,idx_y,idx_z,thb_x,thb_y,thb_z,mcp_x,mcp_y,mcp_z");

@@ -26,14 +26,16 @@ using UnityEngine;
 public class LabChartFro : MonoBehaviour
 {
     [Header("FRO Templates")]
-    [Tooltip("DoublePulse VBS: Output1=0.0501s placeholder, Output2=0.0525s placeholder, both enabled")]
-    [SerializeField] string vbsDoublePulsePath = @"C:\Users\Jisung Yuk\Documents\leapUnity\Source\DoublePulse.vbs";
+    [Tooltip("DoublePulse VBS filename (Output1=0.0501s placeholder, Output2=0.0525s placeholder, both enabled). " +
+             "Just a filename, not a path — resolved next to the running application (same folder as the .exe " +
+             "after a build; the project folder in the Editor), same rule as LaunchLabChart().")]
+    [SerializeField] string vbsDoublePulseFileName = "DoublePulse.vbs";
 
-    [Tooltip("SinglePulse VBS: Output1=0.0501s placeholder, Output2 disabled (On=0)")]
-    [SerializeField] string vbsSinglePulsePath = @"C:\Users\Jisung Yuk\Documents\leapUnity\Source\SinglePulse.vbs";
+    [Tooltip("SinglePulse VBS filename (Output1=0.0501s placeholder, Output2 disabled). Same resolution rule as above.")]
+    [SerializeField] string vbsSinglePulseFileName = "SinglePulse.vbs";
 
-    [Tooltip("NoPulse VBS: Output1 and Output2 both disabled (On=0). Used when ttlEnabled=false to reset FRO state.")]
-    [SerializeField] string vbsNoPulsePath = @"C:\Users\Jisung Yuk\Documents\leapUnity\Source\NoPulse.vbs";
+    [Tooltip("NoPulse VBS filename (Output1 and Output2 both disabled — used when ttlEnabled=false). Same resolution rule as above.")]
+    [SerializeField] string vbsNoPulseFileName = "NoPulse.vbs";
 
     [Tooltip("Delay between template restore and modified message (ms). ~50ms recommended.")]
     [SerializeField] float interMessageDelayMs = 50f;
@@ -99,8 +101,8 @@ public class LabChartFro : MonoBehaviour
     public IEnumerator PrepareOutputs(float out1AbsoluteMs, float out2AbsoluteMs, bool doublePulse)
     {
         byte[] templateBytes = doublePulse
-            ? EnsureTemplate(ref templateBytesDouble, ref doubleLoaded, vbsDoublePulsePath, "DoublePulse")
-            : EnsureTemplate(ref templateBytesSingle, ref singleLoaded, vbsSinglePulsePath, "SinglePulse");
+            ? EnsureTemplate(ref templateBytesDouble, ref doubleLoaded, vbsDoublePulseFileName, "DoublePulse")
+            : EnsureTemplate(ref templateBytesSingle, ref singleLoaded, vbsSinglePulseFileName, "SinglePulse");
 
         if (templateBytes == null) yield break;
 
@@ -158,7 +160,7 @@ public class LabChartFro : MonoBehaviour
     /// </summary>
     public IEnumerator PrepareNoPulse()
     {
-        byte[] templateBytes = EnsureTemplate(ref templateBytesNoPulse, ref noPulseLoaded, vbsNoPulsePath, "NoPulse");
+        byte[] templateBytes = EnsureTemplate(ref templateBytesNoPulse, ref noPulseLoaded, vbsNoPulseFileName, "NoPulse");
         if (templateBytes == null) yield break;
 
         // NoPulse template needs no modification — send as-is (both outputs are On=0)
@@ -199,8 +201,8 @@ public class LabChartFro : MonoBehaviour
             yield break;
         }
 
-        byte[] spTemplate = EnsureTemplate(ref templateBytesSingle, ref singleLoaded, vbsSinglePulsePath, "SinglePulse");
-        byte[] dpTemplate = EnsureTemplate(ref templateBytesDouble, ref doubleLoaded, vbsDoublePulsePath, "DoublePulse");
+        byte[] spTemplate = EnsureTemplate(ref templateBytesSingle, ref singleLoaded, vbsSinglePulseFileName, "SinglePulse");
+        byte[] dpTemplate = EnsureTemplate(ref templateBytesDouble, ref doubleLoaded, vbsDoublePulseFileName, "DoublePulse");
         if (spTemplate == null || dpTemplate == null) yield break;
 
         string spHex = "0x" + BitConverter.ToString(spTemplate).Replace("-", "");
@@ -343,12 +345,24 @@ public class LabChartFro : MonoBehaviour
 
     // ── Internal ─────────────────────────────────────────────────────
 
-    byte[] EnsureTemplate(ref byte[] cache, ref bool loaded, string path, string label)
+    /// <summary>
+    /// Resolves a bare filename to a full path next to the running application
+    /// (Application.dataPath's parent — the build folder, or the project folder in the
+    /// Editor). Same rule as LaunchLabChart(), so every file this component needs lives
+    /// in one place: right next to the .exe after a build.
+    /// </summary>
+    static string ResolveAppRelativePath(string fileName)
+    {
+        return Path.Combine(Path.GetDirectoryName(Application.dataPath), fileName);
+    }
+
+    byte[] EnsureTemplate(ref byte[] cache, ref bool loaded, string fileName, string label)
     {
         if (loaded) return cache;
         loaded = true;
 
-        if (string.IsNullOrEmpty(path) || !File.Exists(path))
+        string path = ResolveAppRelativePath(fileName);
+        if (string.IsNullOrEmpty(fileName) || !File.Exists(path))
         {
             Debug.LogWarning($"[LabChartFro] {label} VBS template not found: {path}");
             return null;

@@ -48,9 +48,12 @@ public class MainMenu : MonoBehaviour
 
     // Internal
     bool settingDropdownSilently = false;
+    RwrGameSettingPanel rwrSettingPanel;
 
     void Start()
     {
+        rwrSettingPanel = gameObject.AddComponent<RwrGameSettingPanel>();
+
         if (warningText) warningText.text = "";
         // Disable logging by default when returning to Main Menu
         if (RuntimeConfigStore.Instance != null)
@@ -144,7 +147,13 @@ public class MainMenu : MonoBehaviour
         ClearModeWarning();
 
         var sceneName = GetSceneSet().settingSceneName;
-        if (string.IsNullOrEmpty(sceneName)) return;
+        if (string.IsNullOrEmpty(sceneName))
+        {
+            // RWR has no dedicated settings scene (unlike RG/R) — show the in-place
+            // panel instead of loading a scene. See RwrGameSettingPanel.cs.
+            if (rwrSettingPanel != null) rwrSettingPanel.Show();
+            return;
+        }
         SceneManager.LoadScene(sceneName);
     }
 
