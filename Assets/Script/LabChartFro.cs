@@ -254,6 +254,39 @@ public class LabChartFro : MonoBehaviour
     }
 
     /// <summary>
+    /// Finds the first .adicht file (alphabetically) next to the running application
+    /// (Application.dataPath's parent — the build folder, or the project folder in the
+    /// Editor) and opens it via the OS file association, launching LabChart with that
+    /// document already loaded. No filename configuration needed. Does not wait for
+    /// LabChart to finish opening — the caller should have the user confirm and try
+    /// again once it's up.
+    /// </summary>
+    public void LaunchLabChart()
+    {
+        string appFolder = Path.GetDirectoryName(Application.dataPath);
+
+        string[] files = Directory.GetFiles(appFolder, "*.adicht");
+        if (files.Length == 0)
+        {
+            Debug.LogWarning($"[LabChartFro] LaunchLabChart: no .adicht file found in {appFolder}");
+            return;
+        }
+
+        Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+        string fullPath = files[0];
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(fullPath) { UseShellExecute = true });
+            Debug.Log($"[LabChartFro] Launching LabChart with: {fullPath}");
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[LabChartFro] LaunchLabChart failed: {e.GetType().Name} — {e.Message}");
+        }
+    }
+
+    /// <summary>
     /// Clears stale Arming/Recording flags when LabChart itself is detected as closed
     /// (LabChartStatusChecker.IsOpen == false), so that if it's reopened later, a fresh
     /// R press arms it cleanly instead of being ignored due to leftover state from the

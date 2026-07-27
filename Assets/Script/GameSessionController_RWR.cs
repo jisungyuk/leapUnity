@@ -401,7 +401,8 @@ public class GameSessionController_RWR : MonoBehaviour
         }
         if (labChartStatus != null && !labChartStatus.IsOpen)
         {
-            Debug.LogWarning("[GameSessionController_RWR] R pressed but LabChart is not open. Launch LabChart first.");
+            froController.LaunchLabChart();
+            Debug.Log("[GameSessionController_RWR] LabChart not open — launching it. Once it's up, press R again to start recording.");
             return;
         }
         if (froController.IsRecording || froController.IsArming)
@@ -436,7 +437,7 @@ public class GameSessionController_RWR : MonoBehaviour
         }
         else if (!labChartStatus.IsOpen)
         {
-            labChartLine = "<color=#FF4444>✗ LabChart: OFF</color>";
+            labChartLine = "<color=#FF4444>✗ LabChart: OFF</color>  <color=#FFFF44>— press R to launch</color>";
         }
         else if (froController != null && froController.IsRecording)
         {

@@ -45,6 +45,7 @@ public class TrialDataLogger : MonoBehaviour
     float holdDuration, goDelay, moveTimeout, feedbackDuration;
     float ttlOffsetMs;
     float readyTime_s, goTime_s;
+    float firstStimRelativeToGoMs = float.NaN; // see TrialGameController_RWR.ComputeFirstStimRelativeToGoMs()
 
     CultureInfo ic = CultureInfo.InvariantCulture;
 
@@ -98,6 +99,7 @@ public class TrialDataLogger : MonoBehaviour
 
         samples.Clear();
         ttlFiredUsFromReady = -1;
+        firstStimRelativeToGoMs = float.NaN;
         recording = true;
     }
 
@@ -110,6 +112,17 @@ public class TrialDataLogger : MonoBehaviour
     {
         if (!recording || readyTimestampUs == 0) return;
         ttlFiredUsFromReady = Mathf.Max(0, (int)(deviceTimestampUs - readyTimestampUs));
+    }
+
+    /// <summary>
+    /// Records when the first real stimulus (whichever of Testing/Conditioning fires first)
+    /// actually landed relative to the Go cue, in ms — the measured jitter figure shown on
+    /// the debug overlay (TrialGameController_RWR.ComputeFirstStimRelativeToGoMs()). NaN if
+    /// not applicable (e.g. a NoPulse/TTL-disabled trial).
+    /// </summary>
+    public void NoteFirstStimTiming(float msFromGo)
+    {
+        firstStimRelativeToGoMs = msFromGo;
     }
 
     public void EndAndSave()
@@ -214,6 +227,9 @@ public class TrialDataLogger : MonoBehaviour
         float ttlFired_s_fromReady = (ttlFiredUsFromReady >= 0) ? (ttlFiredUsFromReady / 1_000_000f) : -1f;
         sb.AppendLine($"# ttl_offset_ms: {ttlOffsetMs.ToString(ic)}");
         sb.AppendLine($"# ttl_fired_s_fromReady: {ttlFired_s_fromReady.ToString(ic)}");
+        // Measured jitter: when the first real stimulus (TS or CS, whichever fires first)
+        // actually landed relative to the Go cue, in ms. NaN if not applicable (e.g. NoPulse).
+        sb.AppendLine($"# first_stim_ms_from_go: {(float.IsNaN(firstStimRelativeToGoMs) ? "NaN" : firstStimRelativeToGoMs.ToString(ic))}");
 
         // Columns
         sb.AppendLine("t_ms_from_ready,state_code,ttl,idx_x,idx_y,idx_z,thb_x,thb_y,thb_z,mcp_x,mcp_y,mcp_z");

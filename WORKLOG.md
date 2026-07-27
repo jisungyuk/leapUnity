@@ -1009,5 +1009,25 @@ NoPulse 관련 크래시는 회피 가능하다고 판단 — **NoPulse trial들
 
 **실제 테스트 결과 (사용자 확인):** 잘 동작함 — 반대쪽 손이 트래킹 범위를 벗어났다 돌아와도 아주 잠깐(한 프레임 수준) 깜빡였다가 바로 사라짐. 근본 원인 재활성화 지점은 못 찾았지만 육안상 문제없는 수준으로 해결됨.
 
+### LabChart R키 자동 실행 (auto-launch) 추가
+
+`LabChartFro.cs`에 `LaunchLabChart()` 추가 — 실행 중인 애플리케이션 폴더(`Application.dataPath`의 부모 폴더 — 빌드 후엔 exe 폴더, 에디터에선 프로젝트 루트) 안에서 `.adicht` 파일을 찾아 알파벳순으로 첫 번째 파일을 OS 파일 연결로 열어줌. 특정 파일명을 지정할 필요 없이 폴더에 있는 걸 그냥 찾아서 엶(사용자 요청). `GameSessionController_RWR.TryArmRecording()`에서 `!labChartStatus.IsOpen`일 때 이걸 호출하도록 연결 — R을 누르면 LabChart가 없을 땐 실행부터 하고, "열리면 R 다시 눌러주세요" 안내만 하고 자동으로 이어서 진행은 안 함(사람이 확인 후 재시도).
+
+### TTL 디버그 표시 오류 수정 + jitter 값 kinematic 로그에 기록
+
+**배경:** 디버그 오버레이(`TrialGameController_RWR.cs`의 `debugText`)에 있던 `TTL: fired (X ms from Go)`는 실제로는 **트리거 펄스 자체가 Go 500ms 전에 고정 발사되는 시각**을 재는 거라, `ts`(ttlOffsetMs)를 얼마로 설정하든 항상 -500ms 근처로 찍혀서 의미가 없었음 (사용자가 대화로 하나씩 짚어가며 확인). 실제로 유용한 값은 **실제 자극(TS 또는 CS 중 먼저 나오는 것)이 Go 기준 몇 ms에 발화했는지**.
+
+**계산 방식 확인 (대화로 검증):**
+- Unity 쪽 jitter는 두 개의 독립적인 프레임 폴링 체크에서 옴 — ① `Update_WaitForGo()`가 Go 진입을 감지하는 시점, ② `Update()`가 TTL 트리거 발사 시점을 감지하는 시점. 각각 최대 1프레임만큼 늦게 잡힘.
+- 파워랩 하드웨어 쪽(트리거 감지 이후 500+ts/500+ts+cs ms 딜레이)은 하드웨어 타이머라 jitter 거의 없음.
+- 프로젝트에 `Application.targetFrameRate` 지정이 없고 `QualitySettings`(현재 Ultra, `vSyncCount=1`)로 모니터 주사율에 동기화됨 — 사용자 환경은 Vizio TV 50/60Hz.
+
+**구현 (`TrialGameController_RWR.cs`):**
+- `ComputeFirstStimRelativeToGoMs()` 추가 — `(ttlFiredTime - goTime) * 1000 + firstStimAbsMs`(첫 자극의 트리거 기준 절대 딜레이, TS/CS 중 작은 값). CS가 TS보다 먼저 나올 수도(음수 offset) 나중에 나올 수도 있어서 `Mathf.Min` 사용.
+- 디버그 문구를 `"TTL: fired — first fire {X:F1} ms from Go cue"`로 교체. `ttlFired`는 됐지만 `goTime`이 아직 없는 과도기(트리거가 Go보다 먼저 발사되므로 그 사이 프레임들)를 위해 `"TTL: fired (awaiting Go)"` 케이스 추가 (원래 코드엔 이 가드가 없어서 그 구간엔 이상한 값이 찍힐 수 있었음).
+- Trial 종료 시(`Update_Feedback()`, `dataLogger.EndAndSave()` 직전) `dataLogger.NoteFirstStimTiming(ComputeFirstStimRelativeToGoMs())` 호출.
+
+**구현 (`TrialDataLogger.cs`):** `firstStimRelativeToGoMs` 필드 추가(매 trial `BeginTrial()`에서 NaN으로 리셋), `NoteFirstStimTiming(float)` 메서드 추가, CSV 헤더에 `# first_stim_ms_from_go: {value}` 한 줄 추가 — 이제 참가자 폴더에 저장되는 kinematic CSV마다 이 jitter 값이 같이 기록됨.
+
 ### 곁가지 (RWR 아님, 미착수)
 GRIP 양손 협력 과제 확장, Leap Motion Polhemus 기반 공간 캘리브레이션, 게임 모드 범용 블루프린트 문서 — `bimanualplan.md`, `CALIBRATION_PLAN.md`, `GAME_MODE_BLUEPRINT.md` 참고. 코드 구현은 아직 없음.
