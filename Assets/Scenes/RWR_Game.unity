@@ -272,6 +272,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   label: {fileID: 15441844}
   leapProvider: {fileID: 1815525967}
+  labChartStatus: {fileID: 712415096}
+  labChartFro: {fileID: 492172704}
 --- !u!1 &142710445
 GameObject:
   m_ObjectHideFlags: 0
@@ -1046,6 +1048,7 @@ MonoBehaviour:
   trialController: {fileID: 1867786848}
   leapInput: {fileID: 1807347969}
   labChartStatus: {fileID: 712415096}
+  froController: {fileID: 492172704}
   capsuleHands: {fileID: 938428884}
   startSphere: {fileID: 1810169202}
   targetSphere: {fileID: 1778046400}
@@ -1060,63 +1063,77 @@ MonoBehaviour:
     instruction: 1
     handMode: 1
     angleDeg: 90
-    distanceCm: 30
-  - ttlEnabled: 1
-    ttlOffsetMs: 50
-    ttl2OffsetMs: -100
-    instruction: 1
-    handMode: 1
-    angleDeg: 90
-    distanceCm: 30
-  - ttlEnabled: 1
-    ttlOffsetMs: 0
-    ttl2OffsetMs: -100
-    instruction: 1
-    handMode: 1
-    angleDeg: 90
-    distanceCm: 30
+    distanceCm: 20
   - ttlEnabled: 1
     ttlOffsetMs: 0
     ttl2OffsetMs: 0
     instruction: 1
     handMode: 1
     angleDeg: 90
-    distanceCm: 30
+    distanceCm: 20
   - ttlEnabled: 1
-    ttlOffsetMs: 0
-    ttl2OffsetMs: 0
-    instruction: 1
-    handMode: 1
-    angleDeg: 90
-    distanceCm: 30
-  - ttlEnabled: 1
-    ttlOffsetMs: 50
-    ttl2OffsetMs: 0
-    instruction: 1
-    handMode: 1
-    angleDeg: 90
-    distanceCm: 30
-  - ttlEnabled: 0
-    ttlOffsetMs: 0
-    ttl2OffsetMs: -60
-    instruction: 1
-    handMode: 1
-    angleDeg: 90
-    distanceCm: 30
-  - ttlEnabled: 0
     ttlOffsetMs: 0
     ttl2OffsetMs: -100
     instruction: 1
     handMode: 1
     angleDeg: 90
-    distanceCm: 30
-  - ttlEnabled: 0
+    distanceCm: 20
+  - ttlEnabled: 1
+    ttlOffsetMs: 0
+    ttl2OffsetMs: 0
+    instruction: 1
+    handMode: 0
+    angleDeg: 90
+    distanceCm: 20
+  - ttlEnabled: 1
+    ttlOffsetMs: 0
+    ttl2OffsetMs: -100
+    instruction: 1
+    handMode: 0
+    angleDeg: 90
+    distanceCm: 20
+  - ttlEnabled: 1
+    ttlOffsetMs: 0
+    ttl2OffsetMs: 0
+    instruction: 1
+    handMode: 0
+    angleDeg: 90
+    distanceCm: 20
+  - ttlEnabled: 1
+    ttlOffsetMs: 0
+    ttl2OffsetMs: -100
+    instruction: 1
+    handMode: 1
+    angleDeg: 90
+    distanceCm: 20
+  - ttlEnabled: 1
     ttlOffsetMs: 0
     ttl2OffsetMs: 0
     instruction: 1
     handMode: 1
     angleDeg: 90
-    distanceCm: 30
+    distanceCm: 20
+  - ttlEnabled: 1
+    ttlOffsetMs: 0
+    ttl2OffsetMs: -100
+    instruction: 1
+    handMode: 1
+    angleDeg: 90
+    distanceCm: 20
+  - ttlEnabled: 1
+    ttlOffsetMs: 0
+    ttl2OffsetMs: 0
+    instruction: 1
+    handMode: 1
+    angleDeg: 90
+    distanceCm: 20
+  - ttlEnabled: 1
+    ttlOffsetMs: 0
+    ttl2OffsetMs: -100
+    instruction: 1
+    handMode: 1
+    angleDeg: 90
+    distanceCm: 20
   statusText: {fileID: 1943709232}
   trialCounterText: {fileID: 382725294}
   calibrationText: {fileID: 491300156}
@@ -2772,7 +2789,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1733469373}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 13671a345982e4b87a8aaa01f07d12d1, type: 3}
   m_Name: 

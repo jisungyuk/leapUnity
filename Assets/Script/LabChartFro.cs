@@ -53,6 +53,27 @@ public class LabChartFro : MonoBehaviour
     // Track active coroutine so it can be cancelled if a new trial starts before it finishes
     [HideInInspector] public Coroutine activeCoroutine = null;
 
+    // ── Session recording state ─────────────────────────────────────
+    // ArmSessionRecording() must not run while already recording — running the
+    // Preload+Bounce (StartSampling/StopSampling) sequence against an already-
+    // sampling session has been observed to break USB communication with the
+    // PowerLab entirely (see WORKLOG.md 2026-07-24). It IS safe to re-run after
+    // an explicit StopRecording() (confirmed via Source/FroRestartTest3.ps1),
+    // which is why the guard here is IsRecording, not a one-shot flag.
+
+    /// <summary>True while ArmSessionRecording() is running (~2.5s).</summary>
+    public bool IsArming { get; private set; } = false;
+
+    /// <summary>
+    /// True once ArmSessionRecording() has completed its final StartSampling call,
+    /// until StopRecording() is called. This reflects that Unity successfully issued
+    /// the command, not a live read of LabChart's actual recording state (LabChart's
+    /// COM API has no way to query current sampling state) — if recording stops for
+    /// some other reason (manual stop in LabChart, a crash), this flag will not
+    /// reflect that until StopRecording() (T) is pressed to sync it back to false.
+    /// </summary>
+    public bool IsRecording { get; private set; } = false;
+
     // ── Public API ───────────────────────────────────────────────────
 
     /// <summary>
@@ -146,6 +167,102 @@ public class LabChartFro : MonoBehaviour
 
         // No second message needed — template itself is the final state
         Debug.Log("[LabChartFro] FRO reset (NoPulse): both outputs disabled.");
+    }
+
+    /// <summary>
+    /// Preload+Bounce session initialization (reference/FROmodeissue.md): sends
+    /// SP+DP before StartSampling, bounces (Stop/Start) once, then sends SP+DP
+    /// again before the final StartSampling. Verified on real hardware
+    /// (Source/FroSpDpCycleTest.ps1, 30/30 toggles with no crash) to reliably
+    /// stabilize SinglePulse<->DoublePulse transitions for the rest of the
+    /// session.
+    ///
+    /// Must NOT run while LabChart is still actively recording — re-running the
+    /// full Preload+Bounce against an already-sampling session breaks USB
+    /// communication with the PowerLab entirely (confirmed on hardware). It IS
+    /// safe to re-run after an explicit StopRecording() + a few seconds' wait
+    /// (confirmed via Source/FroRestartTest3.ps1) — e.g. to recover after
+    /// recording was stopped (T) or stopped unexpectedly. The IsRecording guard
+    /// below is what keeps this safe: call StopRecording() first if unsure.
+    /// Returns a coroutine — start it with StartCoroutine().
+    /// </summary>
+    public IEnumerator ArmSessionRecording()
+    {
+        if (IsRecording)
+        {
+            Debug.LogWarning("[LabChartFro] ArmSessionRecording ignored — already recording. Press T to stop first if you need to restart.");
+            yield break;
+        }
+        if (IsArming)
+        {
+            Debug.LogWarning("[LabChartFro] ArmSessionRecording ignored — already arming.");
+            yield break;
+        }
+
+        byte[] spTemplate = EnsureTemplate(ref templateBytesSingle, ref singleLoaded, vbsSinglePulsePath, "SinglePulse");
+        byte[] dpTemplate = EnsureTemplate(ref templateBytesDouble, ref doubleLoaded, vbsDoublePulsePath, "DoublePulse");
+        if (spTemplate == null || dpTemplate == null) yield break;
+
+        string spHex = "0x" + BitConverter.ToString(spTemplate).Replace("-", "");
+        string dpHex = "0x" + BitConverter.ToString(dpTemplate).Replace("-", "");
+
+        IsArming = true;
+        Debug.Log("[LabChartFro] ArmSessionRecording: Preload+Bounce starting...");
+
+        SendPlayMessage(spHex);
+        yield return new WaitForSecondsRealtime(0.3f);
+        SendPlayMessage(dpHex);
+        yield return new WaitForSecondsRealtime(0.3f);
+        SendStartSampling();
+        yield return new WaitForSecondsRealtime(0.5f);
+        SendStopSampling();
+        yield return new WaitForSecondsRealtime(0.3f);
+        SendPlayMessage(spHex);
+        yield return new WaitForSecondsRealtime(0.3f);
+        SendPlayMessage(dpHex);
+        yield return new WaitForSecondsRealtime(0.3f);
+        SendStartSampling();
+
+        IsArming    = false;
+        IsRecording = true;
+        Debug.Log("[LabChartFro] ArmSessionRecording complete — LabChart recording started.");
+    }
+
+    /// <summary>
+    /// Deliberately stops LabChart recording from Unity (e.g. the T key). Safe to call any
+    /// time recording is active — unlike ArmSessionRecording, StopSampling alone does not
+    /// touch the FRO channel configuration, so it carries none of the reconfiguration risk.
+    /// Once this runs, IsRecording goes back to false and R (ArmSessionRecording) can be
+    /// pressed again to restart — confirmed safe via Source/FroRestartTest3.ps1.
+    /// </summary>
+    public void StopRecording()
+    {
+        if (IsArming)
+        {
+            Debug.LogWarning("[LabChartFro] StopRecording ignored — arming is currently in progress.");
+            return;
+        }
+        if (!IsRecording)
+        {
+            Debug.Log("[LabChartFro] StopRecording called but not currently recording — ignoring.");
+            return;
+        }
+
+        SendStopSampling();
+        IsRecording = false;
+        Debug.Log("[LabChartFro] Recording stopped via Unity. Press R to restart.");
+    }
+
+    /// <summary>
+    /// Clears stale Arming/Recording flags when LabChart itself is detected as closed
+    /// (LabChartStatusChecker.IsOpen == false), so that if it's reopened later, a fresh
+    /// R press arms it cleanly instead of being ignored due to leftover state from the
+    /// previous (now-gone) LabChart instance. Safe to call repeatedly every frame.
+    /// </summary>
+    public void ResetIfLabChartClosed()
+    {
+        IsArming    = false;
+        IsRecording = false;
     }
 
     /// <summary>
@@ -355,6 +472,54 @@ public class LabChartFro : MonoBehaviour
         catch (Exception e)
         {
             Debug.LogWarning($"[LabChartFro] SendPlayMessage failed: {e.GetType().Name} — {e.Message}");
+        }
+    }
+
+    void SendStartSampling()
+    {
+        RunLabChartCommand("Call Doc.StartSampling()", "StartSampling");
+    }
+
+    void SendStopSampling()
+    {
+        RunLabChartCommand("Call Doc.StopSampling()", "StopSampling");
+    }
+
+    /// <summary>Runs a single Doc.* COM call via a temp VBS + cscript.exe, same pattern as SendPlayMessage().</summary>
+    void RunLabChartCommand(string docCallLine, string label)
+    {
+        string vbs = null;
+        try
+        {
+            vbs = Path.Combine(Path.GetTempPath(), "labchart_cmd.vbs");
+            File.WriteAllText(vbs,
+                "On Error Resume Next\r\n" +
+                "Set App = GetObject(,\"ADIChart.Application\")\r\n" +
+                "If Err.Number <> 0 Then WScript.Quit 1\r\n" +
+                "On Error GoTo 0\r\n" +
+                "Set Doc = App.ActiveDocument\r\n" +
+                $"{docCallLine}\r\n",
+                Encoding.ASCII);
+
+            var psi = new System.Diagnostics.ProcessStartInfo("cscript.exe", $"//Nologo \"{vbs}\"")
+            {
+                CreateNoWindow        = true,
+                UseShellExecute       = false,
+                RedirectStandardError = true
+            };
+            using (var proc = System.Diagnostics.Process.Start(psi))
+            {
+                string err = proc.StandardError.ReadToEnd();
+                proc.WaitForExit(2000);
+                if (proc.ExitCode != 0 || !string.IsNullOrEmpty(err))
+                    Debug.LogWarning($"[LabChartFro] {label} cscript error (exit {proc.ExitCode}): {err}");
+                else
+                    Debug.Log($"[LabChartFro] {label} cscript OK.");
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[LabChartFro] {label} failed: {e.GetType().Name} — {e.Message}");
         }
     }
 

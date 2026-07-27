@@ -1,8 +1,10 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using TMPro;
+using Leap;   // for reading raw hand-presence while LeapFingerInput is disabled (paused)
 
 /// <summary>
 /// Manages the RWR session.
@@ -41,9 +43,20 @@ public class GameSessionController_RWR : MonoBehaviour
     [SerializeField] TrialGameController_RWR trialController;
     [SerializeField] LeapFingerInput          leapInput;
     [SerializeField] LabChartStatusChecker    labChartStatus;
+    [SerializeField] LabChartFro              froController;
 
     [Header("Hand Visualization")]
     [SerializeField] GameObject capsuleHands;   // full hand model — ON during calibration, OFF during trials
+
+    // Ultraleap's Capsule Hands prefab has separate "Capsule Hand Left"/"Capsule Hand Right"
+    // children. Leap sometimes mis-identifies which physical hand is which, briefly rendering
+    // the wrong-side model overlapping the real one — cosmetic only (interaction is already
+    // restricted to the trial's chosen hand via LeapFingerInput), but confusing to look at.
+    // For single-hand trials we force-hide the other side's model entirely.
+    GameObject capsuleHandLeft;
+    GameObject capsuleHandRight;
+    bool       capsuleHandChildrenCached = false;
+    int        currentHandModeRestriction = 2; // 0=Left, 1=Right, 2=Either (no restriction) — default matches calibration
 
     [Header("Zone Visualization")]
     [SerializeField] GameObject startSphere;              // shown at calibration origin after SPACE
@@ -105,6 +118,20 @@ public class GameSessionController_RWR : MonoBehaviour
 
     RwrTrialConfig[] trials;
 
+    // SHIFT+SPACE on the calibration screen confirms without LabChart — kinematic-only
+    // recording for the rest of the session (no TTL, no FRO/stimulation). Once set, the
+    // LabChart gate on SPACE and the R key are both permanently ignored for this session.
+    bool labChartBypassed = false;
+    public bool LabChartBypassed => labChartBypassed;
+
+    // ── ESC pause ──────────────────────────────────────────────────
+    // Absorbs the old P-key pause (TrialGameController_RWR.SetPaused — trial timer
+    // freeze) and additionally stops Leap tracking + LabChart recording while paused.
+    // Resuming re-arms LabChart (Preload+Bounce) before actually letting play continue.
+    PauseOverlay pauseOverlay;
+    bool isPaused   = false;
+    bool isResuming = false;
+
     // ── Public info for overlay ──────────────────────────────────────
     public RwrTrialConfig CurrentTrial =>
         trials != null && currentIndex >= 0 && currentIndex < trials.Length
@@ -140,15 +167,47 @@ public class GameSessionController_RWR : MonoBehaviour
         // Show hand model during calibration
         if (capsuleHands != null) capsuleHands.SetActive(true);
 
+        pauseOverlay = gameObject.AddComponent<PauseOverlay>();
+
         ShowCalibrationScreen();
     }
 
     void Update()
     {
+        // If LabChart itself has closed, clear any stale Arming/Recording flags so a
+        // fresh R press works cleanly once it's reopened, instead of being ignored.
+        if (labChartStatus != null && !labChartStatus.IsOpen && froController != null)
+            froController.ResetIfLabChartClosed();
+
+        // ESC: enter pause, or (while already paused) begin the resume sequence.
+        // Q: quit to menu — only while paused, so it can't be hit by accident mid-trial.
+        if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            if (!isPaused) EnterPause();
+            else if (!isResuming) BeginResume();
+        }
+        if (isPaused && Input.GetKeyDown(KeyCode.Q))
+        {
+            QuitToMenu();
+            return;
+        }
+
+        // While paused/resuming, ignore everything else below (calibration input,
+        // recalibration, visual mode, R/T LabChart controls, trial state) and just
+        // keep the overlay's Leap/LabChart status lines live.
+        if (isPaused)
+        {
+            RefreshPauseOverlayText();
+            return;
+        }
+
         if (sessionState == SessionState.Calibrating)
         {
             if (Input.GetKeyDown(KeyCode.Space))
-                ConfirmCalibration();
+            {
+                bool shiftHeld = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+                ConfirmCalibration(shiftHeld);
+            }
 
             UpdateCalibrationStatus();
         }
@@ -176,6 +235,137 @@ public class GameSessionController_RWR : MonoBehaviour
             visualMode = (visualMode + 1) % 3;
             ApplyVisualMode();
         }
+
+        // R: (re)start LabChart recording (Preload+Bounce). T: stop it. Both work in any
+        // session state — recording could need restarting mid-experiment, not just before
+        // trials start. TryArmRecording()/StopRecording() no-op safely if already in that
+        // state, so R and T can be pressed freely as a single "make sure it's recording" /
+        // "make sure it's stopped" pair.
+        if (Input.GetKeyDown(KeyCode.R))
+            TryArmRecording();
+        if (Input.GetKeyDown(KeyCode.T))
+            TryStopRecording();
+    }
+
+    // ── ESC pause ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// ESC (from not-paused): freezes the trial timers (absorbs the old P-key pause),
+    /// stops Leap tracking (our own LeapFingerInput only) and LabChart recording, and
+    /// shows the full-screen pause overlay.
+    /// </summary>
+    void EnterPause()
+    {
+        isPaused = true;
+
+        if (trialController != null)
+            trialController.SetPaused(true);
+        if (leapInput != null)
+            leapInput.enabled = false;
+        if (froController != null)
+            froController.StopRecording();
+
+        RefreshPauseOverlayText();
+
+        Debug.Log("[GameSessionController_RWR] Paused — trial timers frozen, Leap tracking off, LabChart stopped.");
+    }
+
+    /// <summary>
+    /// Rebuilds the pause overlay's text every frame while paused/resuming — same
+    /// Leap/LabChart status info as the calibration screen (UpdateCalibrationStatus()),
+    /// plus the current instructions/title. Live so LabChart's Arming→Recording
+    /// transition during ResumeSequence() actually shows up.
+    /// </summary>
+    void RefreshPauseOverlayText()
+    {
+        if (pauseOverlay == null) return;
+
+        string title = isResuming ? "Resuming..." : "PAUSE";
+        string body  = isResuming
+            ? "<size=60%>Arming LabChart, please wait</size>"
+            : "<size=60%>ESC: Resume     Q: Quit to Menu</size>";
+
+        // Same wording as the calibration screen (UpdateCalibrationStatus()) — hand
+        // detected or not, not a generic on/off toggle. Read the raw Leap frame
+        // directly (not leapInput.hasIndexJointData) since LeapFingerInput itself is
+        // disabled while paused, which would otherwise freeze this at a stale value.
+        bool handDetected = false;
+        if (leapInput != null && leapInput.leapProvider != null)
+        {
+            Frame frame = leapInput.leapProvider.CurrentFrame;
+            handDetected = frame != null && frame.Hands != null && frame.Hands.Count > 0;
+        }
+        string leapLine = handDetected
+            ? "<color=#44FF44>● Hand detected</color>"
+            : "<color=#FF4444>○ No hand detected</color>";
+
+        string labChartLine;
+        if (labChartBypassed)
+            labChartLine = "<color=#888888>LabChart: OFF (kinematic-only)</color>";
+        else if (labChartStatus == null)
+            labChartLine = "<color=#888888>LabChart: checker not assigned</color>";
+        else if (!labChartStatus.IsOpen)
+            labChartLine = "<color=#FF4444>✗ LabChart: OFF</color>";
+        else if (froController != null && froController.IsRecording)
+            labChartLine = "<color=#44FF44>● LabChart: ON — Recording</color>";
+        else if (froController != null && froController.IsArming)
+            labChartLine = "<color=#FFFF44>… LabChart: Arming</color>";
+        else
+            labChartLine = "<color=#FFFF44>○ LabChart: ON — idling</color>";
+
+        pauseOverlay.Show($"{title}\n\n{body}\n\n{leapLine}\n{labChartLine}");
+    }
+
+    /// <summary>ESC (from paused): starts the resume sequence. See ResumeSequence().</summary>
+    void BeginResume()
+    {
+        StartCoroutine(ResumeSequence());
+    }
+
+    /// <summary>
+    /// Re-arms LabChart (Preload+Bounce) before actually letting play continue — the ~2.5s
+    /// this takes is the "wait a few seconds" the user asked for. Leap tracking and the
+    /// trial timers only resume once arming completes, so everything comes back in sync.
+    /// </summary>
+    IEnumerator ResumeSequence()
+    {
+        isResuming = true;
+        RefreshPauseOverlayText();
+
+        if (froController != null && !labChartBypassed)
+            yield return StartCoroutine(froController.ArmSessionRecording());
+
+        if (leapInput != null)
+            leapInput.enabled = true;
+        if (trialController != null)
+            trialController.SetPaused(false);
+
+        if (pauseOverlay != null)
+            pauseOverlay.Hide();
+
+        isPaused   = false;
+        isResuming = false;
+        Debug.Log("[GameSessionController_RWR] Resumed.");
+    }
+
+    /// <summary>Q (only while paused) — same behavior EscapeToMenu.cs used to provide directly on ESC.</summary>
+    void QuitToMenu()
+    {
+        Screen.fullScreen = false;
+        Screen.SetResolution(1920, 1080, false);
+        SceneManager.LoadScene("MainMenu");
+    }
+
+    /// <summary>T — stops LabChart recording via LabChartFro.StopRecording(). Press R to resume.</summary>
+    void TryStopRecording()
+    {
+        if (froController == null)
+        {
+            Debug.LogWarning("[GameSessionController_RWR] T pressed but froController not assigned.");
+            return;
+        }
+
+        froController.StopRecording();
     }
 
     // ── Calibration ─────────────────────────────────────────────────
@@ -192,6 +382,37 @@ public class GameSessionController_RWR : MonoBehaviour
         if (statusText) statusText.text = "";
     }
 
+    /// <summary>
+    /// Triggers ArmSessionRecording() (Preload+Bounce + StartSampling) on the R key.
+    /// No-ops safely if already recording/arming, or if LabChart isn't open — R can be
+    /// pressed freely as "make sure it's recording".
+    /// </summary>
+    void TryArmRecording()
+    {
+        if (labChartBypassed)
+        {
+            Debug.Log("[GameSessionController_RWR] R ignored — session is running without LabChart (kinematic-only, confirmed via SHIFT+SPACE).");
+            return;
+        }
+        if (froController == null)
+        {
+            Debug.LogWarning("[GameSessionController_RWR] R pressed but froController not assigned.");
+            return;
+        }
+        if (labChartStatus != null && !labChartStatus.IsOpen)
+        {
+            Debug.LogWarning("[GameSessionController_RWR] R pressed but LabChart is not open. Launch LabChart first.");
+            return;
+        }
+        if (froController.IsRecording || froController.IsArming)
+        {
+            Debug.Log("[GameSessionController_RWR] Recording already armed/arming — ignoring repeat R press.");
+            return;
+        }
+
+        StartCoroutine(froController.ArmSessionRecording());
+    }
+
     void UpdateCalibrationStatus()
     {
         if (!calibrationText) return;
@@ -202,7 +423,12 @@ public class GameSessionController_RWR : MonoBehaviour
             ? "<color=#44FF44>● Hand detected</color>"
             : "<color=#FF4444>○ No hand detected</color>";
 
-        // LabChart status
+        // LabChart status — three states: OFF / ON-idling / ON-recording.
+        // "Recording" reflects that Unity itself issued StartSampling successfully,
+        // not a live read of LabChart's UI (LabChart's COM API has no way to query
+        // current sampling state) — if recording stops for some other reason (manual
+        // stop in LabChart, a crash), this will keep showing "Recording" until T is
+        // pressed to sync it back to idling.
         string labChartLine;
         if (labChartStatus == null)
         {
@@ -210,11 +436,19 @@ public class GameSessionController_RWR : MonoBehaviour
         }
         else if (!labChartStatus.IsOpen)
         {
-            labChartLine = "<color=#FF4444>✗ LabChart not running</color>";
+            labChartLine = "<color=#FF4444>✗ LabChart: OFF</color>";
+        }
+        else if (froController != null && froController.IsRecording)
+        {
+            labChartLine = "<color=#44FF44>● LabChart: ON — Recording</color>  <color=#888888>(T to stop)</color>";
+        }
+        else if (froController != null && froController.IsArming)
+        {
+            labChartLine = "<color=#FFFF44>… LabChart: Arming (please wait ~2.5s)</color>";
         }
         else
         {
-            labChartLine = "<color=#44FF44>● LabChart open</color>  <color=#FFFF44>— confirm recording manually</color>";
+            labChartLine = "<color=#FFFF44>○ LabChart: ON — idling</color>  <color=#FFFF44>— press R to start recording</color>";
         }
 
         calibrationText.text =
@@ -225,8 +459,28 @@ public class GameSessionController_RWR : MonoBehaviour
             $"LabChart:     {labChartLine}";
     }
 
-    void ConfirmCalibration()
+    void ConfirmCalibration(bool bypassLabChart = false)
     {
+        if (!labChartBypassed && froController != null && !froController.IsRecording)
+        {
+            if (bypassLabChart)
+            {
+                labChartBypassed = true;
+                if (trialController != null) trialController.skipLabChart = true;
+                Debug.LogWarning("[GameSessionController_RWR] Continuing WITHOUT LabChart (SHIFT+SPACE) — kinematic-only for this session, TTL/stimulation disabled.");
+            }
+            else
+            {
+                if (calibrationText)
+                    calibrationText.text =
+                        "Press  R  to start LabChart recording first\n\n" +
+                        "(SPACE will be enabled once recording has started)\n\n" +
+                        "<size=70%>or  SHIFT+SPACE  to continue WITHOUT LabChart\n(kinematic-only, no stimulation)</size>";
+                Debug.LogWarning("[GameSessionController_RWR] SPACE blocked — LabChart recording not active. Press R first, or SHIFT+SPACE for kinematic-only.");
+                return;
+            }
+        }
+
         if (leapInput == null)
         {
             ShowStatus("LeapFingerInput not assigned.");
@@ -389,6 +643,7 @@ public class GameSessionController_RWR : MonoBehaviour
             leapInput.allowEitherHand = (cfg.handMode == 2);
             leapInput.useLeftHand     = (cfg.handMode == 0);
         }
+        ApplyHandVisualRestriction(cfg.handMode);
 
         trialController?.ConfigureAndBegin(
             cfg.startPos,
@@ -442,6 +697,65 @@ public class GameSessionController_RWR : MonoBehaviour
             if (startSphere  != null) startSphere.SetActive(showAll);
             if (targetSphere != null) targetSphere.SetActive(showAll);
         }
+    }
+
+    /// <summary>
+    /// Records which hand a single-hand trial restricts to (0=Left, 1=Right, 2=Either)
+    /// and immediately applies it. LateUpdate() re-applies this every frame — see
+    /// EnforceHandVisualRestriction() for why.
+    /// </summary>
+    void ApplyHandVisualRestriction(int handMode)
+    {
+        currentHandModeRestriction = handMode;
+
+        if (!capsuleHandChildrenCached)
+        {
+            capsuleHandChildrenCached = true;
+            if (capsuleHands != null)
+            {
+                // Find by Handedness (Leap.HandModelBase), not GameObject name — robust
+                // against any renaming/prefab variation, unlike Transform.Find by string.
+                foreach (var hm in capsuleHands.GetComponentsInChildren<HandModelBase>(true))
+                {
+                    if (hm.Handedness == Chirality.Left)  capsuleHandLeft  = hm.gameObject;
+                    if (hm.Handedness == Chirality.Right) capsuleHandRight = hm.gameObject;
+                }
+
+                if (capsuleHandLeft == null || capsuleHandRight == null)
+                    Debug.LogWarning("[GameSessionController_RWR] Could not find HandModelBase children (Left/Right) under capsuleHands — per-hand visual restriction disabled.");
+            }
+        }
+
+        EnforceHandVisualRestriction();
+    }
+
+    /// <summary>
+    /// Re-hides the non-selected hand's Capsule Hand model every frame (called from
+    /// LateUpdate, after everything else has had a chance to run) for single-hand trials —
+    /// something re-enables it on its own after a tracking loss/reacquisition and we
+    /// couldn't pin down the exact cause, so this just wins every frame instead.
+    /// SetActive is skipped when the state already matches, so this is effectively free
+    /// on the (vast majority of) frames where nothing is trying to re-show it.
+    /// </summary>
+    void EnforceHandVisualRestriction()
+    {
+        if (capsuleHandLeft != null)
+        {
+            bool shouldBeActive = currentHandModeRestriction != 1; // hidden only when Right-only
+            if (capsuleHandLeft.activeSelf != shouldBeActive)
+                capsuleHandLeft.SetActive(shouldBeActive);
+        }
+        if (capsuleHandRight != null)
+        {
+            bool shouldBeActive = currentHandModeRestriction != 0; // hidden only when Left-only
+            if (capsuleHandRight.activeSelf != shouldBeActive)
+                capsuleHandRight.SetActive(shouldBeActive);
+        }
+    }
+
+    void LateUpdate()
+    {
+        EnforceHandVisualRestriction();
     }
 
     // ── Recalibration ────────────────────────────────────────────────
@@ -575,6 +889,7 @@ public class GameSessionController_RWR : MonoBehaviour
             leapInput.allowEitherHand = (handMode == 2);
             leapInput.useLeftHand     = (handMode == 0);
         }
+        ApplyHandVisualRestriction(handMode);
 
         string ttl2Desc = !ttlEnabled ? "none" : (ttl2OffsetMs == 0f ? "SinglePulse" : $"{ttl2OffsetMs:F1}ms from Testing");
         Debug.Log($"[GameSessionController_RWR] EXP {experimentTrialCounter} — " +

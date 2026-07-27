@@ -121,7 +121,9 @@ public class GameInfoOverlay : MonoBehaviour
 
         // LabChart
         sb.AppendLine("<color=#FFFF88>LABCHART</color>");
-        if (labChartStatus == null)
+        if (sessionController != null && sessionController.LabChartBypassed)
+            sb.AppendLine("  <color=#888888>○ kinematic-only (no stimulation)</color>");
+        else if (labChartStatus == null)
             sb.AppendLine("  <color=#888888>not assigned</color>");
         else if (labChartStatus.IsOpen)
             sb.AppendLine("  <color=#44FF44>● open</color>");

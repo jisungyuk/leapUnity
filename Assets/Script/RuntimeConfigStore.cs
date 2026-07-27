@@ -62,8 +62,8 @@ public class RuntimeConfigStore : MonoBehaviour
         RealWorldReaching = 3
     }
 
-    // Selected game mode from Main Menu (default: current game)
-    public GameMode currentGameMode = GameMode.Blank;
+    // Selected game mode from Main Menu (default: RWR — the actively used mode)
+    public GameMode currentGameMode = GameMode.RealWorldReaching;
 
     // Desired starting trial index (1-based). MainMenu sets this.
     public int startTrialIndex = 1;

@@ -106,6 +106,11 @@ public class TrialGameController_RWR : MonoBehaviour
     [Header("LabChart FRO")]
     [SerializeField] LabChartFro froController;
 
+    // Set once by GameSessionController_RWR when the experimenter confirms calibration
+    // with SHIFT+SPACE ("continue without LabChart") — kinematic-only recording, no TTL
+    // trigger, no FRO/stimulation. See GameSessionController_RWR.ConfirmCalibration().
+    [HideInInspector] public bool skipLabChart = false;
+
     [Header("Zone Cylinder Heights")]
     [SerializeField] float startHeight  = 0.05f;
     [SerializeField] float targetHeight = 0.05f;
@@ -141,7 +146,6 @@ public class TrialGameController_RWR : MonoBehaviour
 
     bool   paused          = false;
     float  pauseStartTime  = 0f;
-    string textBeforePause = "";
 
     bool cursorsOverrideHidden = false;
     bool spheresOverrideHidden = false;
@@ -266,9 +270,6 @@ public class TrialGameController_RWR : MonoBehaviour
 
     void Update()
     {
-        if (Input.GetKeyDown(KeyCode.P))
-            TogglePause();
-
         if (paused)
         {
             UpdateCursors();
@@ -437,7 +438,7 @@ public class TrialGameController_RWR : MonoBehaviour
         // Internal: trigger fires at goPlanned - 0.5s regardless of ttlOffsetMs.
         float goPlanned = readyTime + goDelay;
         ttlPlannedTime  = goPlanned - 0.5f;
-        ttlPending      = true;   // trigger always fires (LabChart event marker), regardless of ttlEnabled
+        ttlPending      = !skipLabChart;   // trigger always fires (LabChart event marker), regardless of ttlEnabled — unless the whole session is running without LabChart (kinematic-only)
         ttlFired        = false;
         ttlFiredTime    = -1f;
 
@@ -447,7 +448,7 @@ public class TrialGameController_RWR : MonoBehaviour
         //   Output1 (Conditioning) = (500 + ttl1 + ttl2) ms from trigger  (variable, fires first when ttl2 < 0)
         //   Output2 (Testing)      = (500 + ttl1) ms from trigger          (fixed reference)
         // ttl2 == 0 means SinglePulse (Output1/Conditioning disabled).
-        if (froController != null)
+        if (froController != null && !skipLabChart)
         {
             // Cancel any in-progress coroutine from a previous trial
             froController.CancelPrepare();
@@ -525,14 +526,19 @@ public class TrialGameController_RWR : MonoBehaviour
         state         = TrialState.Feedback;
     }
 
-    void TogglePause()
+    /// <summary>
+    /// Freezes/unfreezes the trial state machine and its internal timers. Called
+    /// externally by GameSessionController_RWR's ESC pause system (which also handles
+    /// the on-screen pause overlay, Leap tracking, and LabChart recording).
+    /// </summary>
+    public void SetPaused(bool value)
     {
-        paused = !paused;
+        if (value == paused) return;
+
+        paused = value;
         if (paused)
         {
-            pauseStartTime  = Time.time;
-            textBeforePause = instructionText ? instructionText.text : "";
-            if (instructionText) instructionText.text = "<color=#FFFF44>PAUSE</color>";
+            pauseStartTime = Time.time;
         }
         else
         {
@@ -541,8 +547,6 @@ public class TrialGameController_RWR : MonoBehaviour
             if (readyTime      > 0f) readyTime      += elapsed;
             if (goTime         > 0f) goTime         += elapsed;
             if (ttlPlannedTime > 0f) ttlPlannedTime += elapsed;
-
-            if (instructionText) instructionText.text = textBeforePause;
         }
     }
 

@@ -943,5 +943,71 @@ NoPulse 관련 크래시는 회피 가능하다고 판단 — **NoPulse trial들
 
 **참고용으로 남겨둔 테스트 스크립트** (`Source/Fro*.vbs`, `Source/Fro*.ps1`) — 통합 후 회귀 확인이나 재검증에 재사용 가능.
 
+## 2026-07-27
+
+### LabChart 녹화 자동 시작(Preload+Bounce) Unity 통합 + 재시작 안전성 검증
+
+지난 세션 TODO 1~4 반영. 상세 설계는 `C:\Users\Jisung Yuk\.claude\plans\cached-riding-lighthouse.md` 참고.
+
+**`LabChartFro.cs`:**
+- `SendStartSampling()`/`SendStopSampling()` 추가 — 기존 `SendPlayMessage()`와 동일한 cscript.exe+임시 VBS 패턴(`RunLabChartCommand()`로 공통화).
+- `ArmSessionRecording(bool force = false)` 코루틴 추가 — Preload+Bounce 전체 시퀀스(SP→300ms→DP→300ms→Start→500ms→Stop→300ms→SP→300ms→DP→300ms→Start). `hasArmed` 가드로 세션당 1회만 자동 실행되고, `force=true`로 재실행 가능.
+- `IsArming`/`IsRecording` public 상태 노출. `IsRecording`은 **Unity가 명령을 성공적으로 보냈다는 로컬 플래그**일 뿐 LabChart 실시간 상태를 읽어오는 게 아님(폴링 방식은 크래시 위험 대비 이번엔 도입 안 하기로 결정).
+
+**`GameSessionController_RWR.cs`:**
+- `froController` 필드 추가. **R키** = 녹화 시작(`TryArmRecording()`→`ArmSessionRecording()`), **T키** = 녹화 중지(`TryStopRecording()`→`StopRecording()`, `StopSampling`만 호출·재구성 없음). 둘 다 세션 상태 무관(Calibrating/Running 둘 다) 동작 — "R = 녹화 중인지 확인, T = 멈췄는지 확인"으로 통일.
+- calibration 화면에 LabChart 상태 4단계 표시: OFF / ON—idling(press R) / Arming / ON—Recording(T to stop). **SPACE는 Recording 전까지 차단.**
+- **가드**: `IsRecording`이 true인 동안은 R을 또 눌러도 무시됨(활성 세션에 Bounce 중복 실행 방지, 아래 재시작 검증 참고) — T로 먼저 멈춰야 R이 다시 먹힘. `LabChartStatusChecker.IsOpen`이 false로 바뀌면(LabChart 자체가 꺼짐) `IsArming`/`IsRecording`도 자동으로 리셋됨(`ResetIfLabChartClosed()`, 매 프레임 체크) — 나중에 LabChart를 다시 켜면 깨끗한 idling 상태부터 시작.
+- 처음엔 "SHIFT+R = 강제 재시작"으로 R과 분리해서 설계했었는데, 사용자 피드백으로 R 하나로 통일 — T로 명시적으로 멈추면 `IsRecording=false`가 정확히 반영되니, 그 다음 R을 누르는 게 이미 안전한 시나리오(아래 Test3와 동일)라 굳이 별도 키가 필요 없었음.
+
+**재시작 안전성 검증 — 왜 SHIFT+R이 "재구성 없이 StartSampling만"이 아니라 "전체 Preload+Bounce 재실행"인지:**
+
+배경: "LabChart가 멈추면 R로 다시 시작할 수 있어야 한다"는 요구사항이 나와서, 어떤 재시작 방식이 안전한지 3가지를 실제 하드웨어로 비교 검증함 (모두 Preload+Bounce 최초 1회 → SP/DP 5회 정상 동작 확인 → `StopSampling()`으로 정지 재현 → 5초 대기 → 재시작 → SP/DP 재토글 순서):
+
+| 테스트 | 재시작 방식 | 결과 |
+|---|---|---|
+| `FroRestartTest.ps1` | `StartSampling()`만 단독 재호출 (프리로드 없음) | **크래시** — 재시작 후 SP/DP 재토글 3회차(SP→DP)에서 에러 |
+| `FroRestartTest2.ps1` | SP+DP 프리로드 1회(반복 없음) 후 `StartSampling()` | 크래시 없음 |
+| `FroRestartTest3.ps1` | 전체 Preload+Bounce 재실행 (최초 arm과 동일한 풀 시퀀스) | 크래시 없음 |
+
+결론: **재시작 시에는 최소한 프리로드(SP+DP 재전송)가 필요** — `StartSampling`만 단독으로는 이전에 안전했던 SP↔DP까지 다시 깨짐. 전체 Preload+Bounce 재실행(Test3)도 안전한 것으로 나와, 최초 arm과 완전히 같은 `ArmSessionRecording()`을 재시작에도 그대로 재사용하기로 함 — 가드 조건을 `hasArmed`(1회성 플래그) 대신 `IsRecording`으로 바꿔서, "지금 recording 중이 아니면 언제든 다시 arm 가능"하게 만듦.
+
+**중요한 전제 조건**: 이 안전성은 **"명시적으로 Stop한 뒤 재실행"**한 경우에만 확인된 것. 오늘 초반에 확인했던 "이미 샘플링 중인 세션에 대고 또 Bounce"(Stop 없이 곧바로 재실행)는 여전히 USB 통신이 끊기는 크래시 조건 그대로임. 그래서 `IsRecording`이 true인 동안은 R을 눌러도 무시되도록 가드가 남아있음 — T로 명시적으로 멈춰서 `IsRecording=false`가 된 뒤에만 R이 다시 동작. LabChart가 사용자도 모르게 멈추거나 크래시난 경우엔 Unity가 자동으로 알아채지 못하므로(폴링 도입 안 하기로 결정), 그럴 땐 T를 먼저 눌러 상태를 강제로 동기화한 뒤 R을 누르면 됨.
+
+**미해결 — 다음 세션:**
+- Unity Editor Play 모드로 R/T/4단계 상태 텍스트/SPACE 차단 동작 실제 확인 (배치모드 컴파일 체크는 이미 열려있는 Editor와 충돌해서 못 함 — 코드 리뷰로 대체함, 컴파일 에러는 없어 보임).
+- `RWR_Game.unity`에서 `GameSessionController_RWR`의 `Fro Controller` 슬롯에 씬의 `LabChartFro` 오브젝트 수동 연결 필요.
+- NoPulse trial을 SP/DP와 안 섞이게 블록으로 배치하는 것(TODO 5)은 사용자가 세션 테이블 구성 시 직접 지키기로 함 — 코드 강제는 안 하기로.
+- LabChart 자동 실행(TODO 4)은 아직 미착수.
+
+### ESC 통합 일시정지 시스템 (같은 세션, 이어서)
+
+**배경:** 지금까지 RWR_Game에서 ESC를 누르면 `EscapeToMenu.cs`가 확인 없이 즉시 MainMenu로 나가버렸음 — 실수로 누르면 되돌릴 수 없고, LabChart는 별도 프로그램이라 녹화가 그대로 방치되고, 진행 중이던 trial 데이터도 제대로 안 저장될 수 있었음. 이걸 진짜 일시정지로 바꿈.
+
+**변경 사항:**
+- `TrialGameController_RWR.cs`: 기존 P키 일시정지(`TogglePause()` — trial 내부 타이머만 freeze)를 제거하고, `public void SetPaused(bool value)`로 교체 — 외부(GameSessionController_RWR)에서 호출하는 형태로 전환. 타이밍 시프트 로직(`readyTime`/`goTime`/`ttlPlannedTime`)은 그대로 유지, `instructionText`에 "PAUSE" 직접 쓰던 부분은 제거(오버레이가 대신함).
+- 신규 `Assets/Script/PauseOverlay.cs`: `GameInfoOverlay.cs`와 동일한 런타임 UI 생성 패턴(`FindObjectOfType<Canvas>()`) — 화면 전체를 덮는 반투명 검은 패널 + 중앙 텍스트. 씬 수동 연결 불필요, `GameSessionController_RWR.Start()`에서 `gameObject.AddComponent<PauseOverlay>()`로 생성.
+- `GameSessionController_RWR.cs`: **ESC** = 일시정지 진입(트라이얼 타이머 freeze + Leap 트래킹(`LeapFingerInput.enabled = false`, Ultraleap 서비스 자체는 안 건드림) + LabChart 정지(`StopRecording()`) + 오버레이 표시) → 일시정지 중 **ESC 재입력** = 복귀 시작(`ResumeSequence()` 코루틴: `ArmSessionRecording()`으로 LabChart 재초기화 대기 후에야 트래킹/트라이얼 타이머/오버레이 동시 복귀 — 약 2.5초 소요) → 일시정지 중 **Q** = MainMenu로 이동 (기존 `EscapeToMenu.cs`와 동일 동작 인라인).
+- 일시정지 중엔 R/T/F/SPACE/SHIFT+SPACE 등 나머지 입력 전부 무시.
+
+**미해결 — 다음 세션:**
+- `RWR_Game.unity`에서 기존 `EscapeToMenu` 컴포넌트를 비활성화(또는 제거) 필요 — 지금 그대로 두면 ESC를 누르는 순간 새 일시정지 로직보다 먼저(또는 같이) 즉시 메뉴 이동이 발생해 충돌함. `EscapeToMenu.cs` 스크립트 자체는 `GRIP_Game.unity`에서도 쓰므로 스크립트는 안 건드리고 RWR_Game 씬의 컴포넌트 인스턴스만 끄면 됨.
+- Unity Editor Play 모드로 ESC 일시정지/복귀/Q 종료, 트래킹 정지·재개, LabChart 정지·재시작 전체 플로우 실제 확인 필요.
+
+**같은 세션 추가 개선 — 오버레이 박스화 + 실시간 상태:** 실제 플레이 테스트로 ESC/Q 플로우 자체는 정상 확인됨. 이어서 `PauseOverlay.cs`를 전체화면 딤 배경(alpha 0.6) + 중앙 고정 박스(680x460, 어두운 배경 패널)로 개선하고, `GameSessionController_RWR.cs`에 `RefreshPauseOverlayText()` 추가 — calibration 화면(`UpdateCalibrationStatus()`)과 같은 형식의 Leap Motion/LabChart 상태 줄을 매 프레임 갱신해서 오버레이 안에 표시. 일시정지 중엔 "Leap Motion: OFF"/"LabChart: idling"(우리가 의도적으로 끈 상태 그대로), 복귀(Resuming) 중엔 LabChart의 Arming→Recording 전환이 실시간으로 보임.
+- Leap Motion 손 감지 표시 문구를 calibration 화면과 동일하게 "Hand detected/No hand detected"로 통일. 단, 일시정지 중엔 `LeapFingerInput`이 비활성화돼 있어 `hasIndexJointData`가 그 순간 값에 고정되는 문제 발견 → `leapInput.leapProvider.CurrentFrame.Hands.Count`를 직접 읽어서(우리 코드 비활성화와 무관하게) 실시간으로 반영하도록 수정.
+
+### 단일 손 trial에서 반대쪽 손 모델 강제 숨김
+
+**배경:** Leap Motion이 가끔 오른손을 왼손으로 오인해서, 실제 진행 중인 손(오른손) 모델에 반대쪽(왼손) 모델이 겹쳐 보이는 시각적 혼란이 있었음. 실제 interaction은 이미 `handMode`로 선택된 손(`LeapFingerInput.cs`가 `indexMcp`/`finger1`/`finger2`를 그 손 데이터로만 갱신 — `TrialGameController_RWR.cs`의 `McpInStart()`/`McpInTarget()`은 이 값만 봄)에만 국한되어 있어 게임 진행엔 문제 없었지만, 사용자 입장에서 헷갈릴 수 있어 시각적으로도 정리.
+
+**확인한 구조:** 씬의 `capsuleHands`는 Ultraleap "Capsule Hands" 프리팹(`Library/PackageCache/com.ultraleap.tracking@7.2.0/.../Capsule Hands.prefab`)이며, 그 아래 `Capsule Hand Left`/`Capsule Hand Right` 두 개의 자식 오브젝트로 구성됨.
+
+**구현 (`GameSessionController_RWR.cs`):** `ApplyHandVisualRestriction(int handMode)` 추가 — 처음엔 `capsuleHands.transform.Find("Capsule Hand Left"/"Capsule Hand Right")`로 이름 매칭 시도했으나, 실제 테스트에서 반대쪽 손 모델이 trial 경계에서야 숨겨지고 그마저도 손이 트래킹 범위를 벗어났다 돌아오면 다시 나타나는 문제 발견. `Leap.HandModelBase.Handedness`(Chirality) 속성으로 찾도록 바꿨지만(이름 매칭보다 안정적) 같은 증상 재현 — Ultraleap 패키지 전체(`Library/PackageCache/com.ultraleap.tracking@7.2.0`)를 검색해도 `SetActive(true)`를 호출하는 코드가 전혀 없어서 정확한 재활성화 원인은 못 찾음.
+
+**최종 채택 — 매 프레임 강제 재적용:** 원인을 못 찾았으므로, `LateUpdate()`(다른 모든 스크립트의 Update 이후 실행)에서 매 프레임 `EnforceHandVisualRestriction()`을 호출해 선택 안 된 손을 계속 다시 `SetActive(false)` — 무엇이 언제 다시 켜든 그 프레임 안에서 우리가 마지막에 덮어씀. `activeSelf`가 이미 원하는 상태와 같으면 `SetActive` 호출 자체를 스킵하도록 가드 추가(상태 변화 없는 대부분의 프레임에서는 사실상 공짜). `currentHandModeRestriction` 필드에 현재 trial의 handMode를 저장해두고 매 프레임 그 값 기준으로 판단하므로, trial마다 손이 바뀌어도(Right→Left 등) 다음 프레임부터 바로 정확히 반영됨.
+
+**실제 테스트 결과 (사용자 확인):** 잘 동작함 — 반대쪽 손이 트래킹 범위를 벗어났다 돌아와도 아주 잠깐(한 프레임 수준) 깜빡였다가 바로 사라짐. 근본 원인 재활성화 지점은 못 찾았지만 육안상 문제없는 수준으로 해결됨.
+
 ### 곁가지 (RWR 아님, 미착수)
 GRIP 양손 협력 과제 확장, Leap Motion Polhemus 기반 공간 캘리브레이션, 게임 모드 범용 블루프린트 문서 — `bimanualplan.md`, `CALIBRATION_PLAN.md`, `GAME_MODE_BLUEPRINT.md` 참고. 코드 구현은 아직 없음.

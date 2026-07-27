@@ -10,6 +10,11 @@ public class FpsDisplay : MonoBehaviour
     [Header("Leap Provider (Optional)")]
     [SerializeField] private LeapProvider leapProvider;
 
+    [Header("LabChart (Optional)")]
+    [SerializeField] private LabChartStatusChecker    labChartStatus;
+    [SerializeField] private LabChartFro              labChartFro;
+    [SerializeField] private GameSessionController_RWR sessionController; // for kinematic-only (SHIFT+SPACE bypass) status
+
     // Unity FPS 계산용
     private float unityAccum = 0f;
     private int   unityFrames = 0;
@@ -46,6 +51,23 @@ public class FpsDisplay : MonoBehaviour
 
             if (leapProvider != null)
                 text += $"\nLeap:  {leapFps:0.0} fps";
+
+            if (labChartStatus != null)
+            {
+                string labChartLine;
+                if (sessionController != null && sessionController.LabChartBypassed)
+                    labChartLine = "<color=#888888>LabChart: OFF (kinematic-only)</color>";
+                else if (!labChartStatus.IsOpen)
+                    labChartLine = "<color=#FF4444>LabChart: OFF</color>";
+                else if (labChartFro != null && labChartFro.IsRecording)
+                    labChartLine = "<color=#44FF44>LabChart: Recording</color>";
+                else if (labChartFro != null && labChartFro.IsArming)
+                    labChartLine = "<color=#FFFF44>LabChart: Arming...</color>";
+                else
+                    labChartLine = "<color=#FFFF44>LabChart: idling</color>";
+
+                text += $"\n{labChartLine}";
+            }
 
             if (label != null)
                 label.text = text;
