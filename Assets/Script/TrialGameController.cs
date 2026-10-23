@@ -827,6 +827,8 @@ float ttlLampTimer = 0f;
         return (int)state;
     }
 
+    public string GetStateName(int code) => ((TrialState)code).ToString();
+
     bool ShouldLog()
     {
         return dataLogger != null &&

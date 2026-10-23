@@ -19,7 +19,7 @@ using System.IO.Ports;
 ///   REACH       → MCP inside target zone    → GOOD
 ///   REACH+GRASP → index tip AND thumb tip inside target zone → GOOD
 /// </summary>
-public class TrialGameController_RWR : MonoBehaviour
+public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
 {
     public event Action OnTrialFinished;
 
@@ -223,8 +223,19 @@ public class TrialGameController_RWR : MonoBehaviour
         if (instructionText)
             instructionText.text = "Put your hand on home position";
 
+        // Begin kinematic recording at trial start (MoveToStart)
         if (ShouldLog() && leapInput)
-            dataLogger.Setup(leapInput.leapProvider, indexTip, thumbTip, indexMcp, null);
+        {
+            dataLogger.Setup(leapInput.leapProvider, indexTip, thumbTip, indexMcp, this);
+            dataLogger.BeginTrial(
+                currentTrialIndex, currentTargetId, currentHandMode, currentInstruction,
+                leapInput.useLeftHand, leapInput.lastTimestampUs,
+                startSphere ? startSphere.position : Vector3.zero, startRadius,
+                targetSphere ? targetSphere.position : Vector3.zero, targetRadius,
+                holdDuration, goDelay, executionDuration, feedbackDuration,
+                ttlOffsetMs
+            );
+        }
     }
 
     void Awake()
@@ -331,18 +342,8 @@ public class TrialGameController_RWR : MonoBehaviour
             PlaySound(readyClip);
             readyTime = Time.time;
 
-            // Begin kinematic recording at ShowDirection
             if (ShouldLog() && leapInput)
-            {
-                dataLogger.BeginTrial(
-                    currentTrialIndex, currentTargetId, currentHandMode,
-                    leapInput.useLeftHand, leapInput.lastTimestampUs,
-                    startSphere ? startSphere.position : Vector3.zero, startRadius,
-                    targetSphere ? targetSphere.position : Vector3.zero, targetRadius,
-                    holdDuration, goDelay, executionDuration, feedbackDuration,
-                    ttlOffsetMs, readyTime, -1f
-                );
-            }
+                dataLogger.NoteReady(leapInput.lastTimestampUs);
 
             state = TrialState.ShowDirection;
             ShowDirectionCue();
@@ -403,6 +404,7 @@ public class TrialGameController_RWR : MonoBehaviour
             if (ShouldLog())
             {
                 dataLogger.NoteJitterFromScheduled(ComputeJitterFromScheduledMs());
+                dataLogger.NoteOutcome(outcomeGood);
                 dataLogger.EndAndSave();
             }
 
@@ -496,7 +498,7 @@ public class TrialGameController_RWR : MonoBehaviour
             ttlPending     = true;   // trigger always fires
         }
 
-        if (ShouldLog()) dataLogger.SetGoTime(goTime);
+        if (ShouldLog() && leapInput) dataLogger.NoteGo(leapInput.lastTimestampUs);
 
         execTimer = 0f;
         state     = TrialState.Executing;
@@ -540,6 +542,7 @@ public class TrialGameController_RWR : MonoBehaviour
         if (value == paused) return;
 
         paused = value;
+        if (ShouldLog()) dataLogger.SetPaused(paused);
         if (paused)
         {
             pauseStartTime = Time.time;
@@ -793,4 +796,6 @@ public class TrialGameController_RWR : MonoBehaviour
         RuntimeConfigStore.Instance.enableTrialLogging;
 
     public int GetStateCode() => (int)state;
+
+    public string GetStateName(int code) => ((TrialState)code).ToString();
 }
