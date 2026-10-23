@@ -259,9 +259,10 @@ public class LabChartFro : MonoBehaviour
     /// Finds the first .adicht file (alphabetically) next to the running application
     /// (Application.dataPath's parent — the build folder, or the project folder in the
     /// Editor) and opens it via the OS file association, launching LabChart with that
-    /// document already loaded. No filename configuration needed. Does not wait for
-    /// LabChart to finish opening — the caller should have the user confirm and try
-    /// again once it's up.
+    /// document already loaded. If no .adicht exists, falls back to the first .adiset
+    /// settings file, which opens a new untitled document with those settings.
+    /// No filename configuration needed. Does not wait for LabChart to finish opening —
+    /// the caller should have the user confirm and try again once it's up.
     /// </summary>
     public void LaunchLabChart()
     {
@@ -269,8 +270,10 @@ public class LabChartFro : MonoBehaviour
 
         string[] files = Directory.GetFiles(appFolder, "*.adicht");
         if (files.Length == 0)
+            files = Directory.GetFiles(appFolder, "*.adiset");
+        if (files.Length == 0)
         {
-            Debug.LogWarning($"[LabChartFro] LaunchLabChart: no .adicht file found in {appFolder}");
+            Debug.LogWarning($"[LabChartFro] LaunchLabChart: no .adicht or .adiset file found in {appFolder}");
             return;
         }
 

@@ -95,8 +95,10 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
     [Header("TTL")]
     [SerializeField] float  ttlOffsetMs       = 0f;
     [SerializeField] float  ttl2OffsetMs      = 2.5f;
+    [Tooltip("TriggerBox is located by this device name (Device Manager → Ports); ttlComPort is used only if it isn't found.")]
+    [SerializeField] string ttlDeviceName     = "TriggerBox";
     [SerializeField] string ttlComPort        = "COM5";
-    [SerializeField] int    ttlChannel        = 1;       // 1–8, maps to bit (ch1=1, ch2=2, ch3=4 ...)
+    [SerializeField] int    ttlChannel        = 1;      // 1–8, maps to bit (ch1=1, ch2=2, ch3=4 ...)
     [SerializeField] float  ttlPulseDurationMs = 100f;   // how long the line stays high (ms) — matches Python reference (TRIG_PULSE_MS=100)
     [SerializeField] Renderer ttlLampRenderer;
     [SerializeField] Color    ttlLampOffColor  = Color.black;
@@ -151,6 +153,12 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
     bool spheresOverrideHidden = false;
 
     SerialPort ttlPort = null;
+
+    // TTL port status, shown on the calibration screen
+    public bool   IsTtlPortOpen     => ttlPort != null && ttlPort.IsOpen;
+    public string TtlPortName       { get; private set; }   // port opened or attempted; null if none was available
+    public bool   TtlPortFoundByName { get; private set; }  // true = auto-detected by ttlDeviceName, false = ttlComPort fallback
+    public string TtlDeviceName     => ttlDeviceName;
 
     // ── Public entry point ──────────────────────────────────────────
     public void ConfigureAndBegin(
@@ -253,18 +261,27 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
 
     void OpenTtlPort()
     {
-        if (string.IsNullOrEmpty(ttlComPort)) return;
+        // Prefer the port the TriggerBox is actually on; ttlComPort is only the fallback,
+        // since Windows assigns a different number on each PC.
+        string portName = TtlPortFinder.Resolve(ttlDeviceName, ttlComPort, out bool foundByName);
+        TtlPortName        = portName;
+        TtlPortFoundByName = foundByName;
+        if (string.IsNullOrEmpty(portName))
+        {
+            Debug.LogWarning("[TrialGameController_RWR] No TTL port available — Unity will NOT send trigger pulses this session.");
+            return;
+        }
         try
         {
-            ttlPort = new SerialPort(ttlComPort, 115200);
+            ttlPort = new SerialPort(portName, 115200);
             ttlPort.Open();
             // Reset all channels to 0 on open
             ttlPort.Write(new byte[] { 0 }, 0, 1);
-            Debug.Log($"[TrialGameController_RWR] TTL port {ttlComPort} opened.");
+            Debug.Log($"[TrialGameController_RWR] TTL port {portName} opened.");
         }
         catch (Exception e)
         {
-            Debug.LogWarning($"[TrialGameController_RWR] Could not open TTL port {ttlComPort}: {e.Message}");
+            Debug.LogWarning($"[TrialGameController_RWR] Could not open TTL port {portName}: {e.Message}");
             ttlPort = null;
         }
     }
@@ -591,7 +608,9 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
             ttlLampTimer = ttlLampDuration;
         }
 
-        Debug.Log($"[TrialGameController_RWR] TTL fired — {(ttlFiredTime - goTime) * 1000f:F1} ms from Go (target offset: {ttlOffsetMs} ms)");
+        // The trigger normally fires before Go, while goTime is still unset — measure against planned Go then.
+        float goRef = goTime > 0f ? goTime : readyTime + goDelay;
+        Debug.Log($"[TrialGameController_RWR] TTL fired — {(ttlFiredTime - goRef) * 1000f:F1} ms from {(goTime > 0f ? "Go" : "planned Go")} (target offset: {ttlOffsetMs} ms)");
 
         // NoPulse trials have no FRO event — append a text comment so Event mode shows a label.
         if (!ttlEnabled && froController != null)

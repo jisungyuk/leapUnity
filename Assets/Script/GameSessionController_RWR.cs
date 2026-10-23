@@ -452,12 +452,26 @@ public class GameSessionController_RWR : MonoBehaviour
             labChartLine = "<color=#FFFF44>○ LabChart: ON — idling</color>  <color=#FFFF44>— press R to start recording</color>";
         }
 
+        // TTL TriggerBox port — resolved once when the trial controller wakes up
+        string ttlLine;
+        if (trialController == null)
+            ttlLine = "<color=#888888>○ trial controller not assigned</color>";
+        else if (trialController.IsTtlPortOpen && trialController.TtlPortFoundByName)
+            ttlLine = $"<color=#44FF44>● {trialController.TtlPortName}</color>  <color=#888888>({trialController.TtlDeviceName}, auto-detected)</color>";
+        else if (trialController.IsTtlPortOpen)
+            ttlLine = $"<color=#FFFF44>● {trialController.TtlPortName}</color>  <color=#FFFF44>— {trialController.TtlDeviceName} not found, using configured port</color>";
+        else if (!string.IsNullOrEmpty(trialController.TtlPortName))
+            ttlLine = $"<color=#FF4444>✗ {trialController.TtlPortName} failed to open</color>  <color=#FFFF44>— triggers will NOT be sent</color>";
+        else
+            ttlLine = $"<color=#FF4444>✗ No {trialController.TtlDeviceName} port</color>  <color=#FFFF44>— triggers will NOT be sent</color>";
+
         calibrationText.text =
             "CALIBRATION\n\n" +
             "Place either hand at the home position\n" +
             "then press  SPACE\n\n" +
             $"Leap Motion:  {leapLine}\n" +
-            $"LabChart:     {labChartLine}";
+            $"LabChart:     {labChartLine}\n" +
+            $"TTL (COM):    {ttlLine}";
     }
 
     void ConfirmCalibration(bool bypassLabChart = false)

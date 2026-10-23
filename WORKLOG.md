@@ -1031,3 +1031,31 @@ NoPulse 관련 크래시는 회피 가능하다고 판단 — **NoPulse trial들
 
 ### 곁가지 (RWR 아님, 미착수)
 GRIP 양손 협력 과제 확장, Leap Motion Polhemus 기반 공간 캘리브레이션, 게임 모드 범용 블루프린트 문서 — `bimanualplan.md`, `CALIBRATION_PLAN.md`, `GAME_MODE_BLUEPRINT.md` 참고. 코드 구현은 아직 없음.
+
+---
+
+## 2026-10-23 — LabChart 실행 시 `.adiset` 설정 파일 지원
+
+**문제:** 프로젝트 루트에 있는 LabChart 파일은 `MainDAQFile.adiset`(설정 파일)인데, `LaunchLabChart()`는 `*.adicht`만 찾아서 R을 눌러도 LabChart가 열리지 않았음.
+
+**수정 (`LabChartFro.cs` `LaunchLabChart()`):** `.adicht`가 없으면 `.adiset`을 찾도록 fallback 추가. `.adiset`을 열면 그 설정으로 새 빈 문서(Untitled)가 시작됨 → 세션 끝나면 참가자별 이름으로 저장 필요. 둘 다 없으면 경고 메시지 출력.
+
+**결과:** 사용자 확인 — 정상 동작.
+
+## 2026-10-23 — TTL TriggerBox COM 포트 자동 탐색
+
+**문제:** 새 PC에서 ts=0인데 TMS가 Go가 아니라 준비 중에, 가끔 두 번 발화. Unity 로그 확인 결과 `Could not open TTL port COM5: does not exist` — `RWR_Game` 씬에 이전 PC의 `COM5`가 저장돼 있었고, 이 PC의 TriggerBox는 `COM3`(`TriggerBox VirtualSerial Port`). 즉 Unity 트리거 펄스가 한 번도 안 나갔음 → 관찰된 발화는 Unity와 무관한 신호에 FRO가 반응한 것으로 추정 (미확인). FRO 설정 전송 자체는 정상(`FRO armed (SinglePulse): Testing(Out2)=500.0ms`).
+
+**수정:**
+- `TtlPortFinder.cs` 신규 — 레지스트리(`HKLM\SYSTEM\CurrentControlSet\Enum\<bus>\<device>\<instance>`)에서 FriendlyName에 "TriggerBox"가 들어간 장치의 `Device Parameters\PortName`을 찾고, `SerialPort.GetPortNames()`에 현재 있는 포트만 인정(레지스트리엔 뽑힌 장치도 남아 있어서). 못 찾으면 `ttlComPort`(fallback), 그것도 없으면 경고 + 트리거 미전송.
+- `TrialGameController_RWR.cs` — `ttlDeviceName` 필드(기본 "TriggerBox") 추가, `OpenTtlPort()`가 `TtlPortFinder.Resolve()` 사용. `TTL fired — X ms from Go` 로그가 goTime 미설정(-1) 상태에서 계산돼 수십만 ms로 찍히던 것 수정 → Go 전이면 planned Go(readyTime + goDelay) 기준.
+
+**그 밖에 확인한 것 (이 PC):**
+- Leap 샘플링 ~29Hz — Ultraleap 서비스 자체가 ~30fps (서비스 로그 `tracking::framerate`). Unity 코드/USB 허브/트래킹 모드/노출 모두 원인 아님. 같은 장치가 다른 PC에선 정상 → PC 차이(Windows 빌드 26200, `usbvideo` 드라이버, `SecureUSBVideo` 필터 의심). 미해결.
+- 씬이 어둡게 보임 — 모든 씬이 조명 미생성(LightingDataAsset 없음, Auto Generate 꺼짐), RWR_Game엔 Light 0개 → 환경광 의존. Generate Lighting 후 커밋 필요 (사용자 작업 대기).
+
+**결과:** 사용자 확인 — COM3 자동 탐색, TMS가 Go 시점에 정상 발화.
+
+**추가:** 캘리브레이션 화면 LabChart 줄 아래에 `TTL (COM):` 줄 추가 (`GameSessionController_RWR.UpdateCalibrationStatus()`). 상태 4가지 — 초록 `● COM3 (TriggerBox, auto-detected)` / 노랑 `TriggerBox not found, using configured port` / 빨강 `failed to open` / 빨강 `No TriggerBox port — triggers will NOT be sent`. `TrialGameController_RWR`에 `IsTtlPortOpen`, `TtlPortName`, `TtlPortFoundByName`, `TtlDeviceName` 공개 속성 추가, `TtlPortFinder.Resolve()`에 `out bool foundByName` 추가. 포트 탐색은 Awake에서 한 번만 — TriggerBox를 나중에 꽂으면 씬 재시작 필요.
+
+**이전 다음 항목:** 이 PC에서 TriggerBox 자동 탐색 로그 확인 + TMS가 Go 시점에 1번만 나오는지 테스트 (완료). 그래도 준비 중 발화하면 LabChart FRO 트리거 설정 확인. GRIP 컨트롤러도 같은 COM5 하드코딩 — 필요 시 동일 적용.
