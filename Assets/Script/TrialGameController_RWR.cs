@@ -154,6 +154,9 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
 
     SerialPort ttlPort = null;
 
+    // Trigger fires this long before Go; PowerLab FRO delays are 500 + ts (+ cs) ms from it
+    const float TtlLeadS = 0.5f;
+
     // TTL port status, shown on the calibration screen
     public bool   IsTtlPortOpen     => ttlPort != null && ttlPort.IsOpen;
     public string TtlPortName       { get; private set; }   // port opened or attempted; null if none was available
@@ -375,7 +378,14 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
             return;
         }
 
-        if (Time.time - readyTime >= goDelay)
+        // Once the trigger has fired, Go is timed from the ACTUAL trigger time rather than
+        // the planned one. TS is locked to the trigger by PowerLab hardware (trigger + 500 + ts),
+        // so this removes the trigger's frame-polling delay from the TS-vs-Go error, leaving
+        // only Go's own (0 to 1 frame, Go never before TS+ts). Costs up to one extra frame on
+        // the direction-cue → Go interval. Never go before a pending trigger has fired.
+        bool waitingForTrigger = ttlPending && !ttlFired;
+        float goDue = ttlFired ? ttlFiredTime + TtlLeadS : readyTime + goDelay;
+        if (!waitingForTrigger && Time.time >= goDue)
         {
             goTime = Time.time;
             EnterGo();
@@ -421,6 +431,10 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
             if (ShouldLog())
             {
                 dataLogger.NoteJitterFromScheduled(ComputeJitterFromScheduledMs());
+                dataLogger.NoteStimTiming(
+                    ComputeStimMinusGoMs(ttlOffsetMs),
+                    ttl2OffsetMs != 0f ? ComputeStimMinusGoMs(ttlOffsetMs + ttl2OffsetMs) : float.NaN);
+                dataLogger.NoteTtlPort(!skipLabChart && IsTtlPortOpen ? TtlPortName : "none");
                 dataLogger.NoteOutcome(outcomeGood);
                 dataLogger.EndAndSave();
             }
@@ -460,7 +474,7 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
         // ttlOffsetMs is expressed relative to Go cue (0 = at Go, -50 = 50ms before Go).
         // Internal: trigger fires at goPlanned - 0.5s regardless of ttlOffsetMs.
         float goPlanned = readyTime + goDelay;
-        ttlPlannedTime  = goPlanned - 0.5f;
+        ttlPlannedTime  = goPlanned - TtlLeadS;
         ttlPending      = !skipLabChart;   // trigger always fires (LabChart event marker), regardless of ttlEnabled — unless the whole session is running without LabChart (kinematic-only)
         ttlFired        = false;
         ttlFiredTime    = -1f;
@@ -506,14 +520,6 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
         }
         SetTargetColor(targetActiveColor);
         PlaySound(goClip);
-
-        // Recalculate TTL trigger time from actual go time — only if not already fired.
-        // Trigger always fires 1 second before Go cue.
-        if (!ttlFired)
-        {
-            ttlPlannedTime = goTime - 0.5f;
-            ttlPending     = true;   // trigger always fires
-        }
 
         if (ShouldLog() && leapInput) dataLogger.NoteGo(leapInput.lastTimestampUs);
 
@@ -571,6 +577,7 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
             if (readyTime      > 0f) readyTime      += elapsed;
             if (goTime         > 0f) goTime         += elapsed;
             if (ttlPlannedTime > 0f) ttlPlannedTime += elapsed;
+            if (ttlFiredTime   > 0f) ttlFiredTime   += elapsed;   // Go is timed from it
         }
     }
 
@@ -756,9 +763,22 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
     /// </summary>
     float ComputeJitterFromScheduledMs()
     {
-        if (!ttlEnabled || !ttlFired) return float.NaN;
+        // No open port = no pulse actually reached PowerLab, so there is nothing to measure
+        if (!ttlEnabled || !ttlFired || !IsTtlPortOpen) return float.NaN;
 
-        return (ttlFiredTime - goTime) * 1000f + 500f;
+        return (ttlFiredTime - goTime) * 1000f + TtlLeadS * 1000f;
+    }
+
+    /// <summary>
+    /// When a stimulus fired relative to Go, in ms (positive = after Go), for a stimulus
+    /// designed at designedOffsetMs from Go (ts for Testing, ts + cs for Conditioning).
+    /// Measured on Unity's frame clock, so it includes both frame-polling delays but not
+    /// USB-serial or display latency. NaN if no pulse was sent.
+    /// </summary>
+    float ComputeStimMinusGoMs(float designedOffsetMs)
+    {
+        float jitter = ComputeJitterFromScheduledMs();
+        return float.IsNaN(jitter) ? float.NaN : jitter + designedOffsetMs;
     }
 
     // ── Debug overlay ────────────────────────────────────────────────

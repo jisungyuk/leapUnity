@@ -91,6 +91,9 @@ public class TrialDataLogger : MonoBehaviour
     float ttlOffsetMs;
     bool outcomeGood = false;
     float jitterFromScheduledMs = float.NaN; // see TrialGameController_RWR.ComputeJitterFromScheduledMs()
+    float tsMinusGoMs = float.NaN;           // see TrialGameController_RWR.ComputeStimMinusGoMs()
+    float csMinusGoMs = float.NaN;
+    string ttlPortName = "";                 // blank = caller did not report it (non-RWR controllers)
 
     CultureInfo ic = CultureInfo.InvariantCulture;
 
@@ -177,6 +180,9 @@ public class TrialDataLogger : MonoBehaviour
         legacyReadyTime_s = -1f;
         outcomeGood = false;
         jitterFromScheduledMs = float.NaN;
+        tsMinusGoMs = float.NaN;
+        csMinusGoMs = float.NaN;
+        ttlPortName = "";
         paused = false;
         recording = true;
     }
@@ -271,6 +277,22 @@ public class TrialDataLogger : MonoBehaviour
     public void NoteJitterFromScheduled(float jitterMs)
     {
         jitterFromScheduledMs = jitterMs;
+    }
+
+    /// <summary>
+    /// When Testing (TS) and Conditioning (CS) actually fired relative to Go, in ms
+    /// (positive = after Go). NaN if that stimulus was not sent.
+    /// </summary>
+    public void NoteStimTiming(float tsMinusGoMs, float csMinusGoMs)
+    {
+        this.tsMinusGoMs = tsMinusGoMs;
+        this.csMinusGoMs = csMinusGoMs;
+    }
+
+    /// <summary>COM port the trigger pulses went out on, or "none".</summary>
+    public void NoteTtlPort(string portName)
+    {
+        ttlPortName = portName;
     }
 
     public void EndAndSave()
@@ -414,6 +436,11 @@ public class TrialDataLogger : MonoBehaviour
         // scheduled trigger time, independent of its ts/cs design (see
         // TrialGameController_RWR.ComputeJitterFromScheduledMs()). Blank if not applicable.
         Header("jitter_from_scheduled_ms", float.IsNaN(jitterFromScheduledMs) ? "" : jitterFromScheduledMs.ToString(ic));
+        // Actual stimulus time relative to Go, in ms (positive = after Go), on Unity's frame
+        // clock — excludes USB-serial and display latency. Blank if that pulse was not sent.
+        Header("ts_minus_go_ms", float.IsNaN(tsMinusGoMs) ? "" : tsMinusGoMs.ToString(ic));
+        Header("cs_minus_go_ms", float.IsNaN(csMinusGoMs) ? "" : csMinusGoMs.ToString(ic));
+        Header("ttl_port",       ttlPortName);
 
         // Columns: t_ms,state,ttl + xyz for every joint in OutputJoints
         sb.Append("t_ms,state,ttl");

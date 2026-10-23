@@ -1058,4 +1058,26 @@ GRIP 양손 협력 과제 확장, Leap Motion Polhemus 기반 공간 캘리브�
 
 **추가:** 캘리브레이션 화면 LabChart 줄 아래에 `TTL (COM):` 줄 추가 (`GameSessionController_RWR.UpdateCalibrationStatus()`). 상태 4가지 — 초록 `● COM3 (TriggerBox, auto-detected)` / 노랑 `TriggerBox not found, using configured port` / 빨강 `failed to open` / 빨강 `No TriggerBox port — triggers will NOT be sent`. `TrialGameController_RWR`에 `IsTtlPortOpen`, `TtlPortName`, `TtlPortFoundByName`, `TtlDeviceName` 공개 속성 추가, `TtlPortFinder.Resolve()`에 `out bool foundByName` 추가. 포트 탐색은 Awake에서 한 번만 — TriggerBox를 나중에 꽂으면 씬 재시작 필요.
 
-**이전 다음 항목:** 이 PC에서 TriggerBox 자동 탐색 로그 확인 + TMS가 Go 시점에 1번만 나오는지 테스트 (완료). 그래도 준비 중 발화하면 LabChart FRO 트리거 설정 확인. GRIP 컨트롤러도 같은 COM5 하드코딩 — 필요 시 동일 적용.
+**이전 다음 항목:** 이 PC에서 TriggerBox 자동 탐색 로그 확인 + TMS가 Go 시점에 1번만 나오는지 테스트 (완료).
+
+## 2026-10-23 — Go를 실제 트리거 시각 기준으로 + TS−Go 기록
+
+**배경:** TS↔CS는 PowerLab FRO 하드웨어라 정확하지만, TS↔Go는 컴퓨터 쪽 오차가 들어감. 기존엔 트리거(예정 Go − 500ms)와 Go(예정 Go)가 각자 프레임 폴링으로 따로 발생 → TS−Go 오차 = e1 − e2, ±1프레임, 방향 불명.
+
+**수정 (`TrialGameController_RWR.cs`):**
+- `Update_ShowDirection()` — 트리거가 나간 뒤엔 Go를 `ttlFiredTime + 0.5s` 기준으로 판정. 트리거 대기 중(`ttlPending && !ttlFired`)엔 Go 안 함. TS−Go 오차 = Go 쪽 폴링 지연만(0~1프레임, TS가 항상 Go와 같거나 먼저). 대가: 지시→Go 간격이 최대 1프레임 더 길어짐. LabChart 없이(SHIFT+SPACE, `skipLabChart`) 돌리면 기존대로 예정 시각.
+- `const float TtlLeadS = 0.5f` 로 매직넘버 정리.
+- `EnterGo()`의 "트리거 안 나갔으면 Go − 0.5s로 재계산" 블록 삭제 — 이제 Go 전에 항상 트리거가 나가므로 실행되는 경우는 `skipLabChart`뿐인데, 그때 `ttlPending = true`로 만들어 kinematic-only 세션에서도 Go 직후 트리거를 쏘는 버그였음.
+- 일시정지 해제 시 `ttlFiredTime`도 경과 시간만큼 이동 (Go 기준이 됐으므로).
+- `ComputeJitterFromScheduledMs()` — 포트가 안 열려 있으면 NaN (펄스가 실제로 안 나갔는데 값이 찍히던 문제, 오늘 session 001~003이 그 경우였음 → 삭제함).
+
+**데이터 헤더 추가 (`TrialDataLogger.cs`):** `ts_minus_go_ms`, `cs_minus_go_ms`(단발이면 빈칸), `ttl_port`(예: COM3 / none). Unity 프레임 시계 기준이라 USB 시리얼·디스플레이 지연은 미포함.
+
+**측정 결과 (ts=0, COM3, 에디터):** session_007 120fps n=20 TS−Go 평균 −4.8 ± 3.9 ms (범위 −13.2~−0.2), session_008 60fps n=20 평균 −8.3 ± 7.7 ms (−19.9~−0.1). 40개 모두 TS가 Go보다 먼저. 60fps는 ≈0 / ≈−1프레임 두 무리 (500ms가 프레임 정수배라 경계에 걸림). 자세한 내용과 참가자 기준 지연(렌더링·모니터, 미측정) 정리 → `doc/TS_Go_Timing_Offset.md`. session_005는 무시(사용자 요청).
+
+**다음:**
+- 포토다이오드 없음 → 실제 화면 기준 TS−Go는 미측정. 장비 생기면 화면 마커 추가 후 측정, 평균만큼 ts 보정.
+- 선택 사항: Go 판정 반 프레임 여유, 기본 fps 120으로 변경, 빌드 실행 파일로 재측정.
+- GRIP 컨트롤러도 같은 COM5 하드코딩 — 필요 시 동일 적용.
+- Leap 30Hz(이 PC만) 미해결 — 정상 PC와 Windows 빌드/드라이버 비교 필요.
+- CLAUDE.md의 TTL 설명(1초 전, `1000 + ts`)이 코드(500ms, `500 + ts`)와 다름 — 정리 필요.
