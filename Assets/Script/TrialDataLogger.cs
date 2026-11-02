@@ -94,6 +94,9 @@ public class TrialDataLogger : MonoBehaviour
     float tsMinusGoMs = float.NaN;           // see TrialGameController_RWR.ComputeStimMinusGoMs()
     float csMinusGoMs = float.NaN;
     string ttlPortName = "";                 // blank = caller did not report it (non-RWR controllers)
+    double ttlUnityS = double.NaN;           // Unity realtime at the TTL write; NaN = not reported
+    int    goMinusTtlFrames = -1;
+    double goMinusTtlUnityMs = double.NaN;
 
     // Display frame timing over the recorded trial (Update() intervals; vsync ON = monitor refresh)
     double frameIntervalSumS = 0; int frameCount = 0; float frameIntervalMaxS = 0f; bool skipFirstFrame;
@@ -186,6 +189,7 @@ public class TrialDataLogger : MonoBehaviour
         tsMinusGoMs = float.NaN;
         csMinusGoMs = float.NaN;
         ttlPortName = "";
+        ttlUnityS = double.NaN; goMinusTtlFrames = -1; goMinusTtlUnityMs = double.NaN;
         frameIntervalSumS = 0; frameCount = 0; frameIntervalMaxS = 0f; skipFirstFrame = true;
         paused = false;
         recording = true;
@@ -306,6 +310,18 @@ public class TrialDataLogger : MonoBehaviour
     public void NoteTtlPort(string portName)
     {
         ttlPortName = portName;
+    }
+
+    /// <summary>
+    /// Unity-side TTL/Go timing (RWR): when the TTL was written (Time.realtimeSinceStartup, s; the
+    /// differences between trials can be compared with the TriggerBox pulse intervals in LabChart),
+    /// and Go - TTL in rendered frames (30 at 60 Hz = Go on the intended frame) and in real time.
+    /// </summary>
+    public void NoteUnityTiming(double ttlRealtimeS, int goMinusTtlFrames, double goMinusTtlRealtimeMs)
+    {
+        ttlUnityS          = ttlRealtimeS;
+        goMinusTtlFrames   = goMinusTtlFrames;
+        goMinusTtlUnityMs  = goMinusTtlRealtimeMs;
     }
 
     public void EndAndSave()
@@ -454,6 +470,9 @@ public class TrialDataLogger : MonoBehaviour
         Header("ts_minus_go_ms", float.IsNaN(tsMinusGoMs) ? "" : tsMinusGoMs.ToString(ic));
         Header("cs_minus_go_ms", float.IsNaN(csMinusGoMs) ? "" : csMinusGoMs.ToString(ic));
         Header("ttl_port",       ttlPortName);
+        Header("ttl_unity_s",            double.IsNaN(ttlUnityS) ? "" : ttlUnityS.ToString("0.000000", ic));
+        Header("go_minus_ttl_frames",    goMinusTtlFrames < 0 ? "" : goMinusTtlFrames.ToString(ic));
+        Header("go_minus_ttl_unity_ms",  double.IsNaN(goMinusTtlUnityMs) ? "" : goMinusTtlUnityMs.ToString("0.000", ic));
         // Display timing (vsync ON: one frame per monitor refresh). frame_interval_max_ms well above
         // 1000 / display_refresh_hz means at least one refresh was missed during the trial.
         Header("display_name",           RwrDisplaySettings.CurrentDisplay.name);

@@ -1081,3 +1081,52 @@ GRIP 양손 협력 과제 확장, Leap Motion Polhemus 기반 공간 캘리브�
 - GRIP 컨트롤러도 같은 COM5 하드코딩 — 필요 시 동일 적용.
 - Leap 30Hz(이 PC만) 미해결 — 정상 PC와 Windows 빌드/드라이버 비교 필요.
 - CLAUDE.md의 TTL 설명(1초 전, `1000 + ts`)이 코드(500ms, `500 + ts`)와 다름 — 정리 필요.
+
+---
+
+## 2026-10-28 — 메인 메뉴에 TriggerBox 연결 상태 표시
+
+- `LeapStatusUI.cs` — Leap 상태 줄 아래에 `TriggerBox: connected (COMx)` / `not connected` / `checking...` 표시. `triggerBoxText`를 비워두면 Leap 텍스트를 복제해 30px 아래에 자동 생성 (씬 수정 없음). 2초마다 백그라운드 스레드에서 재검사 → 메뉴에서 꽂고 빼는 것도 반영. 장치 이름 기본값 `TriggerBox` (RWR 컨트롤러와 동일).
+- `TtlPortFinder.cs` — `Find(deviceName)` 추가: 이름으로만 찾음 (COM5 대체 포트 없음, 로그 없음). 메뉴에선 포트를 열지 않음.
+
+- 메뉴는 connected인데 게임 씬은 실패하던 문제: 로그상 COM3을 찾긴 하지만 `Open()`이 "A device attached to the system is not functioning"(Win32 오류 31)으로 실패 — 오늘 Unity 실행 이후 매번. USB 장치/드라이버가 멈춘 상태로 보임 → 다시 꽂으면 해결될 것. 메뉴 검사에 실제 열기 테스트 추가 (`TtlPortFinder.TryOpen`): 새로 보이거나 실패 중인 포트만 열었다 닫음, 실패 시 `COMx not responding — replug USB`. 캘리브레이션 화면의 실패 문구에도 "replug TriggerBox USB" 추가.
+
+**다음:** Unity에서 메인 메뉴 실행해 위치/줄바꿈 확인 (텍스트 박스 폭 300px). USB 다시 꽂은 뒤 게임 씬에서 `TTL port COM3 opened.` 확인.
+
+---
+
+## 2026-10-28 — Leap 30Hz 해결: Ultraleap Tracking 6.2 → Gemini 5.20 다운그레이드
+
+- 원인: 이 PC의 Leap은 1세대 Leap Motion Controller (`VID_F182 PID_0003`, 시리얼 LP98033110253, 펌웨어 1.7.0)인데 Ultraleap Tracking **6.2.0** (Hyperion 계열, LMC2 대상)이 설치돼 있었음. 서비스 로그 `tracking::framerate`가 26~34 → Unity가 아니라 서비스 단계에서 이미 30fps.
+- USB 드라이버는 Windows 기본 `usbvideo.inf` (UVC) — Gemini 5.x/6.x 모두 정상 방식이라 문제 아님.
+- 6.2 제거 후 **Gemini 5.20.0** (`ultraleap-hand-tracking_v5.20.0-2024.04.24_windows.24.exe`) 설치. 공식 서버에선 받을 수 없어 archive.org `Leapmotion-drivers` 미러에서 받음 — Authenticode 서명 Ultraleap Limited (DigiCert) 유효, MD5 `9bf2b2c5c4cd97d14bfff821e45986ec`.
+- 결과: `tracking::framerate` **90~92 fps**.
+
+**다음:**
+- ~~Unity 플러그인 7.2.0 + 5.20 서비스 연결 확인~~ → 앱에서 정상 동작 확인됨 (사용자).
+- 설치 파일은 임시 폴더에 있음 → 필요하면 별도 보관.
+- 서비스 설정의 트래킹 모드는 Screentop, 자동 노출은 Desktop 모드에서만 켜져 있음 — 필요 시 확인.
+
+---
+
+## 2026-11-02 — vsync/모니터 선택 브랜치 테스트 후 merge, Go 타이밍 개선, photodiode 패치
+
+- 원격 `vsync-monitor-select` 브랜치 (vsync ON, 게임 모니터 선택, trial별 디스플레이 타이밍 기록) 테스트 → build에서 정상 동작 확인 후 `main`에 merge (`e6cc027`, 아직 push 안 함).
+  - Editor에서는 Game view의 "VSync (Game view only)"를 켜야 vsync가 적용됨 (안 켜면 119 fps로 빨간 경고). 창 이동은 build에서만 동작.
+- **Home monitor**: Game Settings에 메뉴가 돌아올 모니터 선택 열 추가. 게임 종료 경로(`GameSessionController_RWR`, `EscapeToMenu`)가 먼저 창 모드로 바꾸기 때문에 화면 모드 대신 플래그로 "게임에서 돌아옴"을 판단.
+- **Build 시 LabChart 파일 복사**: `Assets/Editor/CopyLabChartFilesPostBuild.cs` — `.adiset/.adicht`와 `DoublePulse/SinglePulse/NoPulse.vbs`를 .exe 옆으로 복사. 이전에는 build에서 R(LabChart 열기)과 FRO 설정이 실패했음.
+- **Go 타이밍**: `Test/MH01/session_001_20261102/01_p` 40 trial 분석 — TTL→Go 32개 약 500 ms(±0.5), 8개 약 516.7 ms(정확히 1프레임 늦음). 원인은 500 ms = 30프레임이라 Go 예정 시각이 프레임 경계에 걸림. Go를 예정 시각에 가장 가까운 프레임에 내도록 반 프레임 여유 적용.
+  - 이 세션은 ts가 비어 NoPulse (TTL 트리거는 나갔지만 FRO 출력은 꺼짐).
+  - 모든 trial에 `frame_interval_max_ms` 66–100 ms의 끊김이 한 번씩 있음 (TTL→Go 구간 밖). 위치 미확인 — 아마 trial 시작 시 cscript 실행.
+- **Photodiode 패치** (`PhotodiodePatch.cs`): 게임 화면 구석의 검은 사각형이 Go 프레임부터 100 ms 동안 흰색. Game Settings에서 on/off, 위치, 크기 설정. trial 헤더 `photodiode_patch`.
+- CLAUDE.md, `LabChartFro.cs` 주석을 현재 코드에 맞게 수정: TTL은 Go 500 ms 전, Output1 = Conditioning / Output2 = Testing, SinglePulse는 Output1 꺼짐·Output2 켜짐, cs는 항상 −|cs|.
+
+- session_002 (반 프레임 수정 후): TTL→Go 37/40 약 500 ms, 24·26번 516 ms, 25번 483.5 ms (1프레임 이름). 연속 3 trial에서 부호가 바뀌어 Leap 시계 측정 오차일 가능성 — 구분하려고 trial 헤더에 Unity 시계 필드 추가: `go_minus_ttl_frames`, `go_minus_ttl_unity_ms`, `ttl_unity_s`.
+  - LabChart `Trigger Box` 채널에 펄스 40개 모두 도착 (폭 100.6–121 ms). photodiode 센서는 아직 없음.
+  - LabChart .mat은 MAT v4 형식 — 32비트 Python이라 scipy 설치 불가, numpy로 직접 파싱.
+
+**다음:**
+- 다시 40 trial 돌려 `go_minus_ttl_frames`가 모두 30인지 확인 (29/31이면 실제 오류, 30인데 `go_ms − ttl_ms`가 어긋나면 Leap 시계 오차).
+- `ttl_unity_s` trial 간 차이 vs LabChart TriggerBox 펄스 간격 비교 → USB-serial TTL 지연 흔들림 측정.
+- Photodiode를 LabChart에 연결해 TTL → photodiode 상승 간격 측정 → 화면 표시 지연(상수)만큼 ts 보정.
+- trial마다 있는 66–100 ms 프레임 끊김 위치 확인.

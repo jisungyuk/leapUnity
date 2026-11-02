@@ -143,6 +143,11 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
     float ttlFiredTime = -1f;
     float ttlPlannedTime = 0f;
 
+    // Unity-side clocks at TTL and Go, for the trial header (cross-check against the Leap-clock
+    // ttl_ms/go_ms and against the TriggerBox pulse times recorded in LabChart)
+    int    ttlFrame = -1, goFrame = -1;
+    double ttlRealtimeS = -1, goRealtimeS = -1;
+
     bool notifiedFinished = false;
     bool outcomeGood      = false;
 
@@ -218,6 +223,8 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
         ttlFired         = false;
         ttlFiredTime     = -1f;
         ttlPlannedTime   = 0f;
+        ttlFrame = goFrame = -1;
+        ttlRealtimeS = goRealtimeS = -1;
         notifiedFinished = false;
         outcomeGood      = false;
 
@@ -393,7 +400,9 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
         float halfFrame = 0.5f * (hz > 0f ? 1f / hz : Time.smoothDeltaTime);
         if (!waitingForTrigger && Time.time >= goDue - halfFrame)
         {
-            goTime = Time.time;
+            goTime      = Time.time;
+            goFrame     = Time.frameCount;
+            goRealtimeS = Time.realtimeSinceStartupAsDouble;
             EnterGo();
         }
     }
@@ -441,6 +450,8 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
                     ComputeStimMinusGoMs(ttlOffsetMs),
                     ttl2OffsetMs != 0f ? ComputeStimMinusGoMs(ttlOffsetMs + ttl2OffsetMs) : float.NaN);
                 dataLogger.NoteTtlPort(!skipLabChart && IsTtlPortOpen ? TtlPortName : "none");
+                if (ttlFrame >= 0 && goFrame >= 0)
+                    dataLogger.NoteUnityTiming(ttlRealtimeS, goFrame - ttlFrame, (goRealtimeS - ttlRealtimeS) * 1000.0);
                 dataLogger.NoteOutcome(outcomeGood);
                 dataLogger.EndAndSave();
             }
@@ -612,6 +623,8 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
         ttlFired     = true;
         ttlPending   = false;
         ttlFiredTime = Time.time;
+        ttlFrame     = Time.frameCount;
+        ttlRealtimeS = Time.realtimeSinceStartupAsDouble;   // just before the serial write below
 
         if (ShouldLog() && leapInput)
             dataLogger.NoteTtlFired(leapInput.lastTimestampUs);

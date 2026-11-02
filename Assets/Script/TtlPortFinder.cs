@@ -50,6 +50,34 @@ public static class TtlPortFinder
         return null;
     }
 
+    /// <summary>
+    /// Returns the present port whose device name contains deviceNameMatch, or null.
+    /// No fallback and no logging, so it is safe to poll (e.g. for a status display).
+    /// </summary>
+    public static string Find(string deviceNameMatch)
+    {
+        string[] present;
+        try { present = SerialPort.GetPortNames(); }
+        catch (Exception) { return null; }
+        return FindByDeviceName(deviceNameMatch, present);
+    }
+
+    /// <summary>
+    /// Opens and immediately closes the port to check it actually works — Windows can list a
+    /// port whose USB device has stopped responding. Returns null on success, else the error.
+    /// </summary>
+    public static string TryOpen(string portName, int baudRate = 115200)
+    {
+        try
+        {
+            using var port = new SerialPort(portName, baudRate);
+            port.Open();
+            port.Close();
+            return null;
+        }
+        catch (Exception e) { return e.Message; }
+    }
+
     // Walks Enum\<bus>\<device>\<instance> looking for a "Device Parameters\PortName" value
     // on an instance whose FriendlyName contains the match string.
     static string FindByDeviceName(string deviceNameMatch, string[] present)

@@ -52,6 +52,9 @@
   - `jitter_from_scheduled_ms = (ttlFiredTime - goTime) + 500` — TTL→Go deviation from 500 ms
   - `ts_minus_go_ms = jitter + ts`, `cs_minus_go_ms = jitter + ts - |cs|`
   - Blank when ttlEnabled=false (NoPulse) or the port is not open
+  - `go_minus_ttl_frames` (30 at 60 Hz = Go on the intended frame), `go_minus_ttl_unity_ms` (Unity realtime),
+    `ttl_unity_s` (Unity realtime at the TTL write; compare inter-trial differences with the TriggerBox
+    pulse intervals in LabChart). `ttl_ms`/`go_ms` are on the Leap frame clock.
 - Photodiode patch (`PhotodiodePatch.cs`, optional in MainMenu → Game Settings): a corner square, black, white for
   100 ms from the Go frame. A photodiode on it recorded in LabChart gives the real trigger → Go-on-screen time;
   use the constant part to compensate ts. Trial header field `photodiode_patch`.

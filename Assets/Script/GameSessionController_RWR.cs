@@ -461,7 +461,7 @@ public class GameSessionController_RWR : MonoBehaviour
         else if (trialController.IsTtlPortOpen)
             ttlLine = $"<color=#FFFF44>● {trialController.TtlPortName}</color>  <color=#FFFF44>— {trialController.TtlDeviceName} not found, using configured port</color>";
         else if (!string.IsNullOrEmpty(trialController.TtlPortName))
-            ttlLine = $"<color=#FF4444>✗ {trialController.TtlPortName} failed to open</color>  <color=#FFFF44>— triggers will NOT be sent</color>";
+            ttlLine = $"<color=#FF4444>✗ {trialController.TtlPortName} failed to open</color>  <color=#FFFF44>— replug TriggerBox USB; triggers will NOT be sent</color>";
         else
             ttlLine = $"<color=#FF4444>✗ No {trialController.TtlDeviceName} port</color>  <color=#FFFF44>— triggers will NOT be sent</color>";
 
