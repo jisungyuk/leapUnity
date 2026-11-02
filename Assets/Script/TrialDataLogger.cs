@@ -95,6 +95,9 @@ public class TrialDataLogger : MonoBehaviour
     float csMinusGoMs = float.NaN;
     string ttlPortName = "";                 // blank = caller did not report it (non-RWR controllers)
 
+    // Display frame timing over the recorded trial (Update() intervals; vsync ON = monitor refresh)
+    double frameIntervalSumS = 0; int frameCount = 0; float frameIntervalMaxS = 0f; bool skipFirstFrame;
+
     CultureInfo ic = CultureInfo.InvariantCulture;
 
     public void SetExperimentingMode(bool value) { isExperimenting = value; }
@@ -183,8 +186,18 @@ public class TrialDataLogger : MonoBehaviour
         tsMinusGoMs = float.NaN;
         csMinusGoMs = float.NaN;
         ttlPortName = "";
+        frameIntervalSumS = 0; frameCount = 0; frameIntervalMaxS = 0f; skipFirstFrame = true;
         paused = false;
         recording = true;
+    }
+
+    void Update()
+    {
+        if (!recording || paused) return;
+        if (skipFirstFrame) { skipFirstFrame = false; return; }   // first interval spans the trial transition
+        float dt = Time.unscaledDeltaTime;
+        frameIntervalSumS += dt; frameCount++;
+        if (dt > frameIntervalMaxS) frameIntervalMaxS = dt;
     }
 
     /// <summary>
@@ -441,6 +454,13 @@ public class TrialDataLogger : MonoBehaviour
         Header("ts_minus_go_ms", float.IsNaN(tsMinusGoMs) ? "" : tsMinusGoMs.ToString(ic));
         Header("cs_minus_go_ms", float.IsNaN(csMinusGoMs) ? "" : csMinusGoMs.ToString(ic));
         Header("ttl_port",       ttlPortName);
+        // Display timing (vsync ON: one frame per monitor refresh). frame_interval_max_ms well above
+        // 1000 / display_refresh_hz means at least one refresh was missed during the trial.
+        Header("display_name",           RwrDisplaySettings.CurrentDisplay.name);
+        Header("display_refresh_hz",     RwrDisplaySettings.MonitorRefreshHz().ToString("0.###", ic));
+        Header("vsync",                  (QualitySettings.vSyncCount > 0 ? 1 : 0).ToString(ic));
+        Header("frame_interval_mean_ms", frameCount > 0 ? (frameIntervalSumS / frameCount * 1000.0).ToString("0.000", ic) : "");
+        Header("frame_interval_max_ms",  frameCount > 0 ? (frameIntervalMaxS * 1000f).ToString("0.000", ic) : "");
 
         // Columns: t_ms,state,ttl + xyz for every joint in OutputJoints
         sb.Append("t_ms,state,ttl");

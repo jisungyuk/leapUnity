@@ -47,7 +47,7 @@ public class FpsDisplay : MonoBehaviour
         {
             float unityFps = unityFrames / unityAccum;
 
-            string text = $"Unity: {unityFps:0.0} fps";
+            string text = RwrDisplaySettings.RefreshStatusText(unityFps);
 
             if (leapProvider != null)
                 text += $"\nLeap:  {leapFps:0.0} fps";

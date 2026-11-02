@@ -10,22 +10,21 @@ public class DisplayModeManager : MonoBehaviour
 
     void Start()
     {
-        // Set resolution and fullscreen mode
-        Screen.SetResolution(width, height, useFullscreen);
-        Debug.Log($"DisplayModeManager: {width}x{height}, Fullscreen={useFullscreen}");
+        // Fullscreen scenes (the game) go to the monitor chosen in Game Settings, fullscreen at
+        // that monitor's own resolution; the other scenes stay windowed at width x height.
+        if (useFullscreen)
+            StartCoroutine(RwrDisplaySettings.MoveToSelectedDisplay());
+        else
+            Screen.SetResolution(width, height, false);
+        Debug.Log($"DisplayModeManager: {(useFullscreen ? "fullscreen on the selected monitor" : $"{width}x{height} windowed")}");
 
-        // Cap Update() to the lab's configured display refresh rate (MainMenu > Game
-        // Settings, see RwrDisplaySettings/RwrGameSettingPanel) rather than letting it run
-        // uncapped. Running uncapped makes Update()'s frame-polling checks (TTL fire
-        // detection, Go-cue detection) land at a nearly constant phase relative to each
-        // other every trial (500ms apart, but frame time barely varies run to run), which
-        // collapses TrialGameController_RWR's measured jitter to near-zero regardless of
-        // real timing precision — confirmed via [JitterDebug] logging showing genuine
-        // few-ms jitter in Editor (irregular frame times) vs ~0 in a standalone build
-        // (very regular, uncapped frame times). vSyncCount must be 0 or targetFrameRate
-        // is ignored.
-        QualitySettings.vSyncCount  = 0;
-        Application.targetFrameRate = RwrDisplaySettings.GetTargetRefreshRateHz();
+        // vsync ON (2026-11): one Update() per refresh of the monitor the window is on, so the
+        // Go cue is drawn on the monitor's own frame (60 Hz monitor -> 60 fps, 120 Hz -> 120 fps).
+        // This replaces the earlier vsync-off cap at a per-lab Hz setting (targetFrameRate),
+        // which set how often the app polled but not when the monitor actually showed the cue.
+        // Check the measured rate against the monitor in FpsDisplay / Game Settings, and in the
+        // display_refresh_hz / frame_interval_*_ms header fields of each trial file.
+        RwrDisplaySettings.ApplyVsync();
 
         lastWidth  = Screen.width;
         lastHeight = Screen.height;

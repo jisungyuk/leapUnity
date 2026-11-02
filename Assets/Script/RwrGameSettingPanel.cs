@@ -9,15 +9,16 @@ using TMPro;
 /// for RWR), so MainMenu.GameSet() shows this overlay in place instead of loading a scene.
 ///
 /// Laid out as one setting per row so more settings can be added below later without
-/// redesigning the panel. Row 1 (the only one so far) is the display refresh-rate picker
-/// (see RwrDisplaySettings) — different labs use different monitors/TVs, and TTL/Go-cue
-/// jitter measurement only means anything if Update() is capped to the real display
-/// refresh rate rather than running uncapped.
+/// redesigning the panel. Row 1 lists the connected monitors (name, resolution, refresh rate);
+/// the chosen one is where the game goes fullscreen when it starts. Row 2 shows the refresh
+/// rate of the monitor the window is on now next to the measured frame rate (vsync is on, so
+/// they should match). See RwrDisplaySettings.
 /// </summary>
 public class RwrGameSettingPanel : MonoBehaviour
 {
-    GameObject     backdrop;
-    TMP_InputField hzInputField;
+    GameObject backdrop;
+    GameObject displayList;
+    TMP_Text   refreshLabel;
 
     void Awake()
     {
@@ -62,56 +63,69 @@ public class RwrGameSettingPanel : MonoBehaviour
         AddLabel(box.transform, "Game Settings", 32f, Color.white,
             new Vector2(0f, 280f), new Vector2(900f, 50f));
 
-        // Row 1: display refresh rate — label, editable Hz field, auto-detect button.
-        // Everything below this row is intentionally left empty for future settings.
-        const float rowY = 190f, rowH = 50f, spacing = 15f;
-        const float labelW = 280f, inputW = 120f, btnW = 220f;
-        float totalW  = labelW + spacing + inputW + spacing + btnW;
-        float startX  = -totalW / 2f;
-        float labelX  = startX + labelW / 2f;
-        float inputX  = startX + labelW + spacing + inputW / 2f;
-        float btnX    = startX + labelW + spacing + inputW + spacing + btnW / 2f;
+        // Row 1: monitor for the game. One button per connected monitor (name, resolution,
+        // refresh rate); the chosen one is marked and used when the game starts. Rebuilt on Show().
+        AddLabel(box.transform, "Game monitor:", 24f, Color.white,
+            new Vector2(0f, 215f), new Vector2(860f, 40f));
+        displayList = new GameObject("DisplayList");
+        displayList.transform.SetParent(box.transform, false);
+        displayList.AddComponent<RectTransform>();
 
-        AddLabel(box.transform, "Refresh rate (Hz):", 24f, Color.white,
-            new Vector2(labelX, rowY), new Vector2(labelW, rowH), TextAlignmentOptions.MidlineRight);
-
-        hzInputField = AddInputField(box.transform, new Vector2(inputX, rowY), new Vector2(inputW, rowH));
-        hzInputField.onEndEdit.AddListener(OnHzInputEndEdit);
-
-        AddButton(box.transform, "Auto-detect", new Vector2(btnX, rowY), new Vector2(btnW, rowH), OnAutoDetectClicked);
+        // Row 2: refresh rate of the monitor the window is on now, and the measured frame rate.
+        const float rowY = -150f, rowH = 50f;
+        AddLabel(box.transform, "Now:", 24f, Color.white,
+            new Vector2(-330f, rowY), new Vector2(120f, rowH), TextAlignmentOptions.MidlineRight);
+        refreshLabel = AddLabel(box.transform, "", 22f, Color.white,
+            new Vector2(60f, rowY), new Vector2(640f, rowH), TextAlignmentOptions.MidlineLeft);
+        AddLabel(box.transform, "vsync is on: frames follow the refresh rate of the monitor the game runs on. " +
+            "To test another rate, change it in the operating system's display settings.", 18f,
+            new Color(1f, 1f, 1f, 0.6f), new Vector2(0f, rowY - 60f), new Vector2(860f, 60f));
 
         AddButton(box.transform, "Close", new Vector2(0f, -300f), new Vector2(200f, 50f), Hide);
     }
 
-    void OnHzInputEndEdit(string value)
-    {
-        if (int.TryParse(value, out int hz) && hz > 0)
-            Apply(hz);
-        else
-            hzInputField.SetTextWithoutNotify(RwrDisplaySettings.GetTargetRefreshRateHz().ToString());
-    }
+    // measured frame rate while the panel is open (unscaled, so pausing does not matter)
+    float fpsAccum; int fpsFrames;
 
-    void OnAutoDetectClicked()
+    void Update()
     {
-        int hz = Screen.currentResolution.refreshRate;
-        if (hz <= 0) hz = RwrDisplaySettings.DefaultHz;
-        Apply(hz);
-        hzInputField.SetTextWithoutNotify(hz.ToString());
-    }
-
-    void Apply(int hz)
-    {
-        RwrDisplaySettings.SetTargetRefreshRateHz(hz);
-        QualitySettings.vSyncCount  = 0;
-        Application.targetFrameRate = hz;
+        if (backdrop == null || !backdrop.activeSelf || refreshLabel == null) return;
+        fpsAccum += Time.unscaledDeltaTime; fpsFrames++;
+        if (fpsAccum < 0.5f) return;
+        refreshLabel.text = RwrDisplaySettings.RefreshStatusText(fpsFrames / fpsAccum);
+        fpsAccum = 0f; fpsFrames = 0;
     }
 
     public void Show()
     {
         if (backdrop == null) return;
-        if (hzInputField != null)
-            hzInputField.SetTextWithoutNotify(RwrDisplaySettings.GetTargetRefreshRateHz().ToString());
+        RwrDisplaySettings.ApplyVsync();
+        BuildDisplayList();
+        fpsAccum = 0f; fpsFrames = 0;
+        if (refreshLabel != null) refreshLabel.text = $"Monitor {RwrDisplaySettings.MonitorRefreshHz():0.##} Hz (measuring...)";
         backdrop.SetActive(true);
+    }
+
+    void BuildDisplayList()
+    {
+        if (displayList == null) return;
+        foreach (Transform child in displayList.transform) Destroy(child.gameObject);
+
+        var displays = RwrDisplaySettings.Displays();
+        string chosen = RwrDisplaySettings.SelectedDisplayName;
+        if (string.IsNullOrEmpty(chosen)) chosen = RwrDisplaySettings.CurrentDisplay.name;
+        const float top = 160f, step = 58f;
+        for (int i = 0; i < displays.Count; i++)
+        {
+            var d = displays[i];
+            string mark = d.name == chosen ? "[x] " : "[  ] ";   // plain ASCII: the default TMP font lacks circles
+            AddButton(displayList.transform, $"{mark}{i + 1}. {RwrDisplaySettings.Describe(d)}",
+                new Vector2(0f, top - i * step), new Vector2(760f, 50f),
+                () => { RwrDisplaySettings.SelectDisplay(d); BuildDisplayList(); });
+        }
+        if (displays.Count == 0)
+            AddLabel(displayList.transform, "No monitor reported by the operating system.", 20f,
+                new Color(1f, 0.4f, 0.4f), new Vector2(0f, top), new Vector2(760f, 50f));
     }
 
     public void Hide()
@@ -139,68 +153,6 @@ public class RwrGameSettingPanel : MonoBehaviour
         t.alignment           = align;
         t.enableWordWrapping  = true;
         return t;
-    }
-
-    TMP_InputField AddInputField(Transform parent, Vector2 anchoredPos, Vector2 size)
-    {
-        var go = new GameObject("HzInputField");
-        go.transform.SetParent(parent, false);
-
-        var rt = go.AddComponent<RectTransform>();
-        rt.anchorMin        = new Vector2(0.5f, 0.5f);
-        rt.anchorMax        = new Vector2(0.5f, 0.5f);
-        rt.pivot            = new Vector2(0.5f, 0.5f);
-        rt.anchoredPosition = anchoredPos;
-        rt.sizeDelta        = size;
-
-        var bg = go.AddComponent<Image>();
-        bg.color = new Color(0.18f, 0.18f, 0.2f, 1f);
-
-        var inputField = go.AddComponent<TMP_InputField>();
-
-        var textAreaGo = new GameObject("Text Area");
-        textAreaGo.transform.SetParent(go.transform, false);
-        var textAreaRT = textAreaGo.AddComponent<RectTransform>();
-        textAreaRT.anchorMin = Vector2.zero;
-        textAreaRT.anchorMax = Vector2.one;
-        textAreaRT.offsetMin = new Vector2(10f, 4f);
-        textAreaRT.offsetMax = new Vector2(-10f, -4f);
-        textAreaGo.AddComponent<RectMask2D>();
-
-        var textGo = new GameObject("Text");
-        textGo.transform.SetParent(textAreaGo.transform, false);
-        var textRT = textGo.AddComponent<RectTransform>();
-        textRT.anchorMin = Vector2.zero;
-        textRT.anchorMax = Vector2.one;
-        textRT.offsetMin = Vector2.zero;
-        textRT.offsetMax = Vector2.zero;
-        var text = textGo.AddComponent<TextMeshProUGUI>();
-        text.fontSize           = 24f;
-        text.color              = Color.white;
-        text.alignment          = TextAlignmentOptions.MidlineLeft;
-        text.enableWordWrapping = false;
-
-        var placeholderGo = new GameObject("Placeholder");
-        placeholderGo.transform.SetParent(textAreaGo.transform, false);
-        var placeholderRT = placeholderGo.AddComponent<RectTransform>();
-        placeholderRT.anchorMin = Vector2.zero;
-        placeholderRT.anchorMax = Vector2.one;
-        placeholderRT.offsetMin = Vector2.zero;
-        placeholderRT.offsetMax = Vector2.zero;
-        var placeholder = placeholderGo.AddComponent<TextMeshProUGUI>();
-        placeholder.text       = "60";
-        placeholder.fontSize   = 24f;
-        placeholder.fontStyle  = FontStyles.Italic;
-        placeholder.color      = new Color(1f, 1f, 1f, 0.4f);
-        placeholder.alignment  = TextAlignmentOptions.MidlineLeft;
-
-        inputField.textViewport   = textAreaRT;
-        inputField.textComponent  = text;
-        inputField.placeholder    = placeholder;
-        inputField.contentType    = TMP_InputField.ContentType.IntegerNumber;
-        inputField.characterLimit = 4;
-
-        return inputField;
     }
 
     void AddButton(Transform parent, string label, Vector2 anchoredPos, Vector2 size, System.Action onClick)
