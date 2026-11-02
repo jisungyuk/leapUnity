@@ -9,17 +9,18 @@ using UnityEngine;
 /// <summary>
 /// Controls LabChart Fast Response Output (FRO) per trial via COM automation.
 ///
-/// The TTL trigger (TriggerBox pulse) always fires 1 second before the Go cue.
-/// FRO delays are measured from that trigger:
-///   Output1 (Testing Stimulus)     delay = (1000 + ttl1) ms
-///   Output2 (Conditioning Stimulus) delay = (1000 + ttl1 + ttl2) ms
+/// The TTL trigger (TriggerBox pulse) fires 500 ms before the Go cue (TrialGameController_RWR.TtlLeadS).
+/// FRO delays are measured from that trigger (ttl1 = ts, ttl2 = -|cs|, so ttl2 <= 0):
+///   Output1 (Conditioning Stimulus) delay = (500 + ttl1 + ttl2) ms
+///   Output2 (Testing Stimulus)      delay = (500 + ttl1) ms
 ///
-/// ttl2 == 0  → SinglePulse (Output2 disabled)
+/// ttl2 == 0  → SinglePulse (Output1 disabled, Testing only)
 /// ttl2 != 0  → DoublePulse (both outputs active)
 ///
 /// Template files (must be recorded in LabChart):
-///   DoublePulse: Firstt.vbs      — Output1 = 0.0501s placeholder, Output2 = 0.0525s placeholder
-///   SinglePulse: SinglePulse.vbs — Output1 = 0.0501s placeholder, Output2 disabled (On=0)
+///   DoublePulse: DoublePulse.vbs — Output1 = 0.0501s placeholder, Output2 = 0.0525s placeholder
+///   SinglePulse: SinglePulse.vbs — Output1 disabled (On=0), Output2 = 0.0525s placeholder
+///   NoPulse:     NoPulse.vbs     — both outputs disabled, sent as-is
 ///
 /// Requires: .NET Framework API level (Project Settings → Player → Api Compatibility Level)
 /// </summary>
@@ -31,7 +32,7 @@ public class LabChartFro : MonoBehaviour
              "after a build; the project folder in the Editor), same rule as LaunchLabChart().")]
     [SerializeField] string vbsDoublePulseFileName = "DoublePulse.vbs";
 
-    [Tooltip("SinglePulse VBS filename (Output1=0.0501s placeholder, Output2 disabled). Same resolution rule as above.")]
+    [Tooltip("SinglePulse VBS filename (Output1 disabled, Output2=0.0525s placeholder). Same resolution rule as above.")]
     [SerializeField] string vbsSinglePulseFileName = "SinglePulse.vbs";
 
     [Tooltip("NoPulse VBS filename (Output1 and Output2 both disabled — used when ttlEnabled=false). Same resolution rule as above.")]
@@ -78,15 +79,6 @@ public class LabChartFro : MonoBehaviour
 
     // ── Public API ───────────────────────────────────────────────────
 
-    /// <summary>
-    /// Call this during ShowDirectionCue (before the Go cue).
-    /// out1AbsoluteMs and out2AbsoluteMs are ABSOLUTE delays from the TTL trigger pulse.
-    ///   out1AbsoluteMs = 500 + ttl1   (ms)
-    ///   out2AbsoluteMs = 500 + ttl1 + ttl2   (ms)
-    /// doublePulse=false → SinglePulse template (Output2 disabled).
-    /// Use SendNoPulse() instead when ttlEnabled=false.
-    /// Returns a coroutine — start it with StartCoroutine().
-    /// </summary>
     /// <summary>Cancels any in-progress PrepareOutputs/PrepareNoPulse coroutine.</summary>
     public void CancelPrepare()
     {
@@ -98,6 +90,15 @@ public class LabChartFro : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Call this during ShowDirectionCue (before the Go cue).
+    /// out1AbsoluteMs and out2AbsoluteMs are ABSOLUTE delays from the TTL trigger pulse.
+    ///   out1AbsoluteMs = 500 + ttl1 + ttl2   (ms, Output1 = Conditioning; ttl2 = -|cs|)
+    ///   out2AbsoluteMs = 500 + ttl1          (ms, Output2 = Testing)
+    /// doublePulse=false → SinglePulse template (Output1 disabled; out1AbsoluteMs ignored).
+    /// Use PrepareNoPulse() instead when ttlEnabled=false.
+    /// Returns a coroutine — start it with StartCoroutine().
+    /// </summary>
     public IEnumerator PrepareOutputs(float out1AbsoluteMs, float out2AbsoluteMs, bool doublePulse)
     {
         byte[] templateBytes = doublePulse

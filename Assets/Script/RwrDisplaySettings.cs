@@ -75,7 +75,63 @@ public static class RwrDisplaySettings
             while (!op.isDone) yield return null;
         }
         Screen.SetResolution(target.width, target.height, FullScreenMode.FullScreenWindow);
+        returnHomePending = true;
         Debug.Log($"[RwrDisplaySettings] Game on {Describe(CurrentDisplay)}");
+    }
+
+    // ── home monitor (menus, tables) ──────────────────────────────────────
+
+    const string HomeDisplayPrefKey = "RWR_HomeDisplayName";
+
+    // Monitor the app window opened on; the home monitor when none is chosen in Game Settings.
+    static DisplayInfo launchDisplay;
+
+    // Set when the game has taken the window; the next windowed scene brings it back home.
+    // A flag rather than the screen mode, because the game's exit paths (GameSessionController_RWR,
+    // EscapeToMenu) already switch to windowed before loading the menu.
+    static bool returnHomePending;
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+    static void RememberLaunchDisplay() => launchDisplay = Screen.mainWindowDisplayInfo;
+
+    /// <summary>Chosen home monitor's name, or the monitor the app opened on if none is chosen.</summary>
+    public static string HomeDisplayName
+    {
+        get
+        {
+            string name = PlayerPrefs.GetString(HomeDisplayPrefKey, "");
+            return string.IsNullOrEmpty(name) ? launchDisplay.name : name;
+        }
+    }
+
+    public static void SelectHomeDisplay(DisplayInfo d)
+    {
+        PlayerPrefs.SetString(HomeDisplayPrefKey, d.name);
+        PlayerPrefs.Save();
+    }
+
+    /// <summary>Makes the window width x height windowed. Coming back from the game, also moves it,
+    /// centered, to the home monitor (if connected); otherwise the window stays where it is
+    /// (e.g. where the user dragged it). Run as a coroutine.</summary>
+    public static IEnumerator ReturnToHomeDisplay(int width, int height)
+    {
+        Screen.SetResolution(width, height, false);
+        if (!returnHomePending) yield break;
+        returnHomePending = false;
+
+        string want = HomeDisplayName;
+        DisplayInfo home = default;
+        bool found = false;
+        foreach (var d in Displays())
+            if (d.name == want) { home = d; found = true; break; }
+        if (!found || home.name == CurrentDisplay.name) yield break;
+
+        yield return null;   // let the switch to windowed mode take effect before moving
+        var pos = new Vector2Int(Mathf.Max(0, (home.width - width) / 2),
+                                 Mathf.Max(0, (home.height - height) / 2));
+        var op = Screen.MoveMainWindowTo(home, pos);
+        while (!op.isDone) yield return null;
+        Debug.Log($"[RwrDisplaySettings] Menu back on {Describe(CurrentDisplay)}");
     }
 
     /// <summary>"Monitor 120 Hz | Unity 119.9 fps | vsync ON", red when the measured frame

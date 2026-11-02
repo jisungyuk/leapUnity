@@ -9,8 +9,10 @@ using TMPro;
 /// for RWR), so MainMenu.GameSet() shows this overlay in place instead of loading a scene.
 ///
 /// Laid out as one setting per row so more settings can be added below later without
-/// redesigning the panel. Row 1 lists the connected monitors (name, resolution, refresh rate);
-/// the chosen one is where the game goes fullscreen when it starts. Row 2 shows the refresh
+/// redesigning the panel. Row 1 lists the connected monitors (name, resolution, refresh rate)
+/// twice: the game monitor, where the game goes fullscreen when it starts, and the home monitor,
+/// where the menus return after the game. Row 2 turns the photodiode patch (PhotodiodePatch)
+/// on/off and sets its corner and size. Row 3 shows the refresh
 /// rate of the monitor the window is on now next to the measured frame rate (vsync is on, so
 /// they should match). See RwrDisplaySettings.
 /// </summary>
@@ -18,7 +20,13 @@ public class RwrGameSettingPanel : MonoBehaviour
 {
     GameObject backdrop;
     GameObject displayList;
+    GameObject homeList;
+    GameObject photodiodeRow;
     TMP_Text   refreshLabel;
+
+    const float PhotodiodeRowY = -85f;
+
+    const float ColumnX = 228f, ColumnW = 440f;   // monitor columns: centers at -/+ColumnX
 
     void Awake()
     {
@@ -63,15 +71,28 @@ public class RwrGameSettingPanel : MonoBehaviour
         AddLabel(box.transform, "Game Settings", 32f, Color.white,
             new Vector2(0f, 280f), new Vector2(900f, 50f));
 
-        // Row 1: monitor for the game. One button per connected monitor (name, resolution,
-        // refresh rate); the chosen one is marked and used when the game starts. Rebuilt on Show().
+        // Row 1: monitors, two columns. Left: where the game goes fullscreen when it starts.
+        // Right: where the menus return after the game. One button per connected monitor (name,
+        // resolution, refresh rate); the chosen one is marked. Rebuilt on Show().
         AddLabel(box.transform, "Game monitor:", 24f, Color.white,
-            new Vector2(0f, 215f), new Vector2(860f, 40f));
+            new Vector2(-ColumnX, 215f), new Vector2(ColumnW, 40f));
+        AddLabel(box.transform, "Home monitor (menus):", 24f, Color.white,
+            new Vector2(ColumnX, 215f), new Vector2(ColumnW, 40f));
         displayList = new GameObject("DisplayList");
         displayList.transform.SetParent(box.transform, false);
         displayList.AddComponent<RectTransform>();
+        homeList = new GameObject("HomeDisplayList");
+        homeList.transform.SetParent(box.transform, false);
+        homeList.AddComponent<RectTransform>();
 
-        // Row 2: refresh rate of the monitor the window is on now, and the measured frame rate.
+        // Row 2: photodiode patch (see PhotodiodePatch): on/off, corner, size. Rebuilt on Show() and on click.
+        AddLabel(box.transform, "Photodiode patch:", 24f, Color.white,
+            new Vector2(-290f, PhotodiodeRowY), new Vector2(200f, 50f), TextAlignmentOptions.MidlineRight);
+        photodiodeRow = new GameObject("PhotodiodeRow");
+        photodiodeRow.transform.SetParent(box.transform, false);
+        photodiodeRow.AddComponent<RectTransform>();
+
+        // Row 3: refresh rate of the monitor the window is on now, and the measured frame rate.
         const float rowY = -150f, rowH = 50f;
         AddLabel(box.transform, "Now:", 24f, Color.white,
             new Vector2(-330f, rowY), new Vector2(120f, rowH), TextAlignmentOptions.MidlineRight);
@@ -100,32 +121,65 @@ public class RwrGameSettingPanel : MonoBehaviour
     {
         if (backdrop == null) return;
         RwrDisplaySettings.ApplyVsync();
-        BuildDisplayList();
+        BuildDisplayLists();
+        BuildPhotodiodeRow();
         fpsAccum = 0f; fpsFrames = 0;
         if (refreshLabel != null) refreshLabel.text = $"Monitor {RwrDisplaySettings.MonitorRefreshHz():0.##} Hz (measuring...)";
         backdrop.SetActive(true);
     }
 
-    void BuildDisplayList()
+    void BuildDisplayLists()
     {
-        if (displayList == null) return;
-        foreach (Transform child in displayList.transform) Destroy(child.gameObject);
+        string game = RwrDisplaySettings.SelectedDisplayName;
+        if (string.IsNullOrEmpty(game)) game = RwrDisplaySettings.CurrentDisplay.name;
+        BuildDisplayList(displayList, -ColumnX, game, RwrDisplaySettings.SelectDisplay);
+        BuildDisplayList(homeList, ColumnX, RwrDisplaySettings.HomeDisplayName, RwrDisplaySettings.SelectHomeDisplay);
+    }
+
+    void BuildDisplayList(GameObject list, float x, string chosen, System.Action<DisplayInfo> select)
+    {
+        if (list == null) return;
+        foreach (Transform child in list.transform) Destroy(child.gameObject);
 
         var displays = RwrDisplaySettings.Displays();
-        string chosen = RwrDisplaySettings.SelectedDisplayName;
-        if (string.IsNullOrEmpty(chosen)) chosen = RwrDisplaySettings.CurrentDisplay.name;
         const float top = 160f, step = 58f;
         for (int i = 0; i < displays.Count; i++)
         {
             var d = displays[i];
             string mark = d.name == chosen ? "[x] " : "[  ] ";   // plain ASCII: the default TMP font lacks circles
-            AddButton(displayList.transform, $"{mark}{i + 1}. {RwrDisplaySettings.Describe(d)}",
-                new Vector2(0f, top - i * step), new Vector2(760f, 50f),
-                () => { RwrDisplaySettings.SelectDisplay(d); BuildDisplayList(); });
+            AddButton(list.transform, $"{mark}{i + 1}. {RwrDisplaySettings.Describe(d)}",
+                new Vector2(x, top - i * step), new Vector2(ColumnW, 50f),
+                () => { select(d); BuildDisplayLists(); });
         }
         if (displays.Count == 0)
-            AddLabel(displayList.transform, "No monitor reported by the operating system.", 20f,
-                new Color(1f, 0.4f, 0.4f), new Vector2(0f, top), new Vector2(760f, 50f));
+            AddLabel(list.transform, "No monitor reported by the operating system.", 20f,
+                new Color(1f, 0.4f, 0.4f), new Vector2(x, top), new Vector2(ColumnW, 50f));
+    }
+
+    void BuildPhotodiodeRow()
+    {
+        if (photodiodeRow == null) return;
+        foreach (Transform child in photodiodeRow.transform) Destroy(child.gameObject);
+
+        bool on = PhotodiodePatch.Enabled;
+        AddButton(photodiodeRow.transform, on ? "[x] ON" : "[  ] OFF",
+            new Vector2(-80f, PhotodiodeRowY), new Vector2(140f, 50f),
+            () => { PhotodiodePatch.Enabled = !PhotodiodePatch.Enabled; BuildPhotodiodeRow(); });
+        if (!on) return;
+
+        // Click to cycle through the corners / sizes
+        AddButton(photodiodeRow.transform, PhotodiodePatch.PatchCorner.ToString(),
+            new Vector2(110f, PhotodiodeRowY), new Vector2(200f, 50f),
+            () => { PhotodiodePatch.PatchCorner = (PhotodiodePatch.Corner)(((int)PhotodiodePatch.PatchCorner + 1) % 4); BuildPhotodiodeRow(); });
+        AddButton(photodiodeRow.transform, $"{PhotodiodePatch.SizePx} px",
+            new Vector2(300f, PhotodiodeRowY), new Vector2(140f, 50f),
+            () =>
+            {
+                var sizes = PhotodiodePatch.SizesPx;
+                int i = System.Array.IndexOf(sizes, PhotodiodePatch.SizePx);
+                PhotodiodePatch.SizePx = sizes[(i + 1) % sizes.Length];
+                BuildPhotodiodeRow();
+            });
     }
 
     public void Hide()

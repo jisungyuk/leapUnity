@@ -461,6 +461,7 @@ public class TrialDataLogger : MonoBehaviour
         Header("vsync",                  (QualitySettings.vSyncCount > 0 ? 1 : 0).ToString(ic));
         Header("frame_interval_mean_ms", frameCount > 0 ? (frameIntervalSumS / frameCount * 1000.0).ToString("0.000", ic) : "");
         Header("frame_interval_max_ms",  frameCount > 0 ? (frameIntervalMaxS * 1000f).ToString("0.000", ic) : "");
+        Header("photodiode_patch",       PhotodiodePatch.Describe());   // white from the Go frame; "off" if not shown
 
         // Columns: t_ms,state,ttl + xyz for every joint in OutputJoints
         sb.Append("t_ms,state,ttl");

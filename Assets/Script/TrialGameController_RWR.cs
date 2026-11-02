@@ -255,6 +255,7 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
         if (!targetRenderer && targetSphere) targetRenderer = targetSphere.GetComponentInChildren<Renderer>();
 
         OpenTtlPort();
+        PhotodiodePatch.CreateIfEnabled();
     }
 
     void OnDestroy()
@@ -380,12 +381,17 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
 
         // Once the trigger has fired, Go is timed from the ACTUAL trigger time rather than
         // the planned one. TS is locked to the trigger by PowerLab hardware (trigger + 500 + ts),
-        // so this removes the trigger's frame-polling delay from the TS-vs-Go error, leaving
-        // only Go's own (0 to 1 frame, Go never before TS+ts). Costs up to one extra frame on
-        // the direction-cue → Go interval. Never go before a pending trigger has fired.
+        // so this removes the trigger's frame-polling delay from the TS-vs-Go error. Never go
+        // before a pending trigger has fired.
+        // Go goes on the frame NEAREST to goDue (half-frame tolerance), not the first one at or
+        // after it: with vsync, 500 ms is a whole number of frames (30 at 60 Hz), so goDue sits on
+        // a frame boundary and a sub-ms wobble in Time.time decided between 500 and 516.7 ms
+        // (8 of 40 trials one frame late in the 2026-11-02 test). Now within about +/-0.5 ms.
         bool waitingForTrigger = ttlPending && !ttlFired;
         float goDue = ttlFired ? ttlFiredTime + TtlLeadS : readyTime + goDelay;
-        if (!waitingForTrigger && Time.time >= goDue)
+        float hz = RwrDisplaySettings.MonitorRefreshHz();
+        float halfFrame = 0.5f * (hz > 0f ? 1f / hz : Time.smoothDeltaTime);
+        if (!waitingForTrigger && Time.time >= goDue - halfFrame)
         {
             goTime = Time.time;
             EnterGo();
@@ -520,6 +526,7 @@ public class TrialGameController_RWR : MonoBehaviour, ITrialStateProvider
         }
         SetTargetColor(targetActiveColor);
         PlaySound(goClip);
+        PhotodiodePatch.Flash();   // same frame as the Go cue, REST included
 
         if (ShouldLog() && leapInput) dataLogger.NoteGo(leapInput.lastTimestampUs);
 

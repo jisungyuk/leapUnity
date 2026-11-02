@@ -11,11 +11,12 @@ public class DisplayModeManager : MonoBehaviour
     void Start()
     {
         // Fullscreen scenes (the game) go to the monitor chosen in Game Settings, fullscreen at
-        // that monitor's own resolution; the other scenes stay windowed at width x height.
+        // that monitor's own resolution; the other scenes are windowed at width x height, back on
+        // the monitor the app opened on when returning from the game.
         if (useFullscreen)
             StartCoroutine(RwrDisplaySettings.MoveToSelectedDisplay());
         else
-            Screen.SetResolution(width, height, false);
+            StartCoroutine(RwrDisplaySettings.ReturnToHomeDisplay(width, height));
         Debug.Log($"DisplayModeManager: {(useFullscreen ? "fullscreen on the selected monitor" : $"{width}x{height} windowed")}");
 
         // vsync ON (2026-11): one Update() per refresh of the monitor the window is on, so the
